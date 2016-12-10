@@ -9,8 +9,8 @@ LDFLAGS = -shared
 
 VERSION = `grep "define VERSION" version.h | cut -d \" -f2`
 VERSION_MAJOR = `grep "define VERSION" version.h | cut -d \" -f2 | cut -d. -f1`
-CC ?= x86_64-pc-linux-gnu-gcc
 INSTALL_DIR ?= `cat install_dir`
+CC ?=
 INC ?=
 LINC ?=
 
