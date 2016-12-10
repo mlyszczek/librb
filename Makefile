@@ -10,7 +10,7 @@ LDFLAGS = -shared
 VERSION = `grep "define VERSION" version.h | cut -d \" -f2`
 VERSION_MAJOR = `grep "define VERSION" version.h | cut -d \" -f2 | cut -d. -f1`
 CC ?= x86_64-pc-linux-gnu-gcc
-INSTALL_DIR ?= /usr/local
+INSTALL_DIR ?= `cat install_dir`
 INC ?=
 LINC ?=
 
@@ -34,6 +34,18 @@ install:
 	cp $(MAIN).so.$(VERSION) $(INSTALL_DIR)/lib
 	ln -sf $(MAIN).so.$(VERSION) $(INSTALL_DIR)/lib/$(MAIN).so.$(VERSION_MAJOR)
 	ln -sf $(MAIN).so.$(VERSION) $(INSTALL_DIR)/lib/$(MAIN).so
+	echo $(INSTALL_DIR) > install_dir
+
+uninstall:
+	@echo $(INSTALL_DIR)
+	rm -f $(INSTALL_DIR)/include/rb.h
+	rm -f $(INSTALL_DIR)/lib/$(MAIN).so.$(VERSION)
+	@if [ ! -f $(INSTALL_DIR)/lib/$(MAIN).so.$(VERSION_MAJOR) ]; then \
+	    rm -f $(INSTALL_DIR)/lib/$(MAIN).so.$(VERSION_MAJOR); \
+	fi
+	@if [ ! -f $(INSTALL_DIR)/lib/$(MAIN).so ]; then \
+	    rm -f $(INSTALL_DIR)/lib/$(MAIN).so; \
+	fi
 
 clean:
 	$(RM) *.o *~ $(MAIN).so.$(VERSION)
