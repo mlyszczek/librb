@@ -9,7 +9,7 @@ LDFLAGS = -shared
 
 VERSION = `grep "define VERSION" version.h | cut -d \" -f2`
 VERSION_MAJOR = `grep "define VERSION" version.h | cut -d \" -f2 | cut -d. -f1`
-INSTALL_DIR ?= `cat install_dir`
+INSTALL_DIR ?= `cat .install_dir`
 CC ?=
 INC ?=
 LINC ?=
@@ -34,7 +34,7 @@ install:
 	cp $(MAIN).so.$(VERSION) $(INSTALL_DIR)/lib
 	ln -sf $(MAIN).so.$(VERSION) $(INSTALL_DIR)/lib/$(MAIN).so.$(VERSION_MAJOR)
 	ln -sf $(MAIN).so.$(VERSION) $(INSTALL_DIR)/lib/$(MAIN).so
-	echo $(INSTALL_DIR) > install_dir
+	echo $(INSTALL_DIR) > .install_dir
 
 uninstall:
 	@echo $(INSTALL_DIR)
