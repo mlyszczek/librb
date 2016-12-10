@@ -1,0 +1,25 @@
+Requirements:
+
+  * libc (glibc, uclibc)
+  * pthread
+
+Install locally:
+
+make && make install
+
+Cross Compile:
+
+To compile for different architecture 3 env variables should be set
+
+CC - cross compiler
+INC - staging include directory
+LINC - staging library directory
+
+Example make might look like this
+
+$ CC=arm-none-eabi \
+  INC=-I/usr/arm-none-eabi/usr/include \
+  LINC=-L/usr/arm-none-eabi/usr/lib \
+  make
+
+$ INSTALL_DIR=/usr/arm-none-eabi/usr make install
