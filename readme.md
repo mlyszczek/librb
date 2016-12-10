@@ -2,14 +2,14 @@ About
 =====
 
 This is library that provides fast, easy to use ring buffer. It's interface is
-very similar to read/write interface from POSIX. Library has only 4 functions:
+very similar to read/write interface from POSIX. librb has only 4 functions:
 
   * rb_new - creates new ring buffer
   * rb_read - reads from the ring buffer
   * rb_write - writes to the ring buffer
   * rb_destroy - destroys ring buffer
 
-Library is thread safe and thread aware. If there are not resources available
+librb is thread safe and thread aware. If there are no resources available
 while reading or writting, caller thread gets locked and doesn't use any
 resources until data is available. Ring buffer can also be configured to work
 in non-blocking mode, so calls from read and write will return immediately
@@ -52,7 +52,7 @@ $ CC=arm-none-eabi \
 $ INSTALL_DIR=/usr/arm-none-eabi/usr make install
 ~~~
 
-Function descriptions
+Functions description
 =====================
 
 rb_new
