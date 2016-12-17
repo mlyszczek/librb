@@ -686,6 +686,25 @@ ssize_t rb_send(struct rb *rb, void *buffer, size_t count, int flags)
 }
 
 /*****************************************************************************
+ * Name: rb_clear
+ *
+ * Description:
+ *   Clears all data in the buffer
+ ****************************************************************************/
+
+int rb_clear(struct rb *rb)
+{
+  if (rb == NULL || rb->buffer == NULL)
+    {
+      errno = EINVAL;
+      return -1;
+    }
+
+  rb->head = 0;
+  rb->tail = 0;
+}
+
+/*****************************************************************************
  * Name: rb_destroy
  *
  * Description:

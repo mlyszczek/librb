@@ -211,6 +211,15 @@ ssize_t rb_write(struct rb *rb, void *buffer, size_t count);
 ssize_t rb_send(struct rb *rb, void *buffer, size_t count, int flags);
 
 /*****************************************************************************
+ * Name: rb_clear
+ *
+ * Description:
+ *   Clears all data in the buffer
+ ****************************************************************************/
+
+void rb_clear(struct rb *rb);
+
+/*****************************************************************************
  * Name: rb_destroy
  *
  * Description:
