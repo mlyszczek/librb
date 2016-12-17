@@ -25,30 +25,6 @@
  ****************************************************************************/
 
 /*****************************************************************************
- * Name: rb_count
- *
- * Description:
- *   Calculates number of elements in ring buffer
- ****************************************************************************/
-
-static size_t rb_count(const struct rb *rb)
-{
-  return (rb->head - rb->tail) & (rb->count - 1);
-}
-
-/*****************************************************************************
- * Name: rb_space
- *
- * Description:
- *   Calculates how many elements can be pushed into ring buffer
- ****************************************************************************/
-
-static size_t rb_space(const struct rb *rb)
-{
-  return (rb->tail - (rb->head + 1)) & (rb->count -1 );
-}
-
-/*****************************************************************************
  * Name: rb_count_end
  *
  * Description:
@@ -702,6 +678,7 @@ int rb_clear(struct rb *rb)
 
   rb->head = 0;
   rb->tail = 0;
+  return 0;
 }
 
 /*****************************************************************************
@@ -800,3 +777,29 @@ const char *rb_version(char *major, char *minor, char *patch)
 
   return VERSION;
 }
+
+/*****************************************************************************
+ * Name: rb_count
+ *
+ * Description:
+ *   Calculates number of elements in ring buffer
+ ****************************************************************************/
+
+size_t rb_count(const struct rb *rb)
+{
+  return (rb->head - rb->tail) & (rb->count - 1);
+}
+
+/*****************************************************************************
+ * Name: rb_space
+ *
+ * Description:
+ *   Calculates how many elements can be pushed into ring buffer
+ ****************************************************************************/
+
+size_t rb_space(const struct rb *rb)
+{
+  return (rb->tail - (rb->head + 1)) & (rb->count -1 );
+}
+
+

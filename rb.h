@@ -217,7 +217,7 @@ ssize_t rb_send(struct rb *rb, void *buffer, size_t count, int flags);
  *   Clears all data in the buffer
  ****************************************************************************/
 
-void rb_clear(struct rb *rb);
+int rb_clear(struct rb *rb);
 
 /*****************************************************************************
  * Name: rb_destroy
@@ -264,5 +264,23 @@ int rb_destroy(struct rb *rb);
  ****************************************************************************/
 
 const char *rb_version(char *major, char *minor, char *patch);
+
+/*****************************************************************************
+ * Name: rb_count
+ *
+ * Description:
+ *   Calculates number of elements in ring buffer
+ ****************************************************************************/
+
+size_t rb_count(const struct rb *rb);
+
+/*****************************************************************************
+ * Name: rb_space
+ *
+ * Description:
+ *   Calculates how many elements can be pushed into ring buffer
+ ****************************************************************************/
+
+size_t rb_space(const struct rb *rb);
 
 #endif /* LIBRB_H */
