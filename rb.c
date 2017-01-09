@@ -576,7 +576,7 @@ ssize_t rb_recv(struct rb *rb, void *buffer, size_t count, int flags)
       return -1;
     }
 
-  if (rb->flags & O_NONTHREAD && flags & MSG_PEEK)
+  if (flags & MSG_PEEK && (rb->flags & O_NONTHREAD) != O_NONTHREAD)
     {
       errno = EINVAL;
       return -1;
