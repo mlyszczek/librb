@@ -86,7 +86,7 @@ rb_new
 ------
 
 ~~~.c
-int rb_new(struct rb *rb, size_t count, size_t object_size, int flags);
+int rb_new(struct rb *rb, size_t count, size_t object_size, unsigned long flags);
 ~~~
 
 This function is used to create and initialize new ring buffer. Information
@@ -122,10 +122,10 @@ Return values:
 Upon success 0 is returned. When error occured all previously allocated
 resources are freed, -1 is returned and errno is set.
 
-EINVAL *rb* is NULL
-EINVAL count is not a power of two number (like 4, 16, 64 etc.)
-EINVAL O_NONTHREAD was set but O_NONBLOCK was not
-ENOMEM could not allocate memory for given count and object_size
+* EINVAL *rb* is NULL
+* EINVAL count is not a power of two number (like 4, 16, 64 etc.)
+* EINVAL O_NONTHREAD was set but O_NONBLOCK was not
+* ENOMEM could not allocate memory for given count and object_size
 
 function can also return errors from pthread_mutex_init or pthread_cond_init
 
@@ -148,16 +148,16 @@ Return values:
 
 0 on success, -1 on error.
 
-EINVAL *rb* object is NULL
+* EINVAL *rb* object is NULL
 
 read and write operations on ring buffer
 ----------------------------------------
 
 ~~~.c
 long rb_write(struct rb *rb, const void *buffer, size_t count);
-long rb_send(struct rb *rb, const void *buffer, size_t count, int flags);
+long rb_send(struct rb *rb, const void *buffer, size_t count, unsigned long flags);
 long rb_read(struct rb *rb, void *buffer, size_t count);
-long rb_recv(struct rb *rb, void *buffer, size_t count, int flags);
+long rb_recv(struct rb *rb, void *buffer, size_t count, unsigned long flags);
 ~~~
 
 For write and send: function copy at most *count* _elements_ to ring buffer
@@ -199,13 +199,17 @@ occur only when O_NONBLOCK or MSG_DONTWAIT is set. If buffer operates in
 blocking mode, it should always return *count* (if error didn't occur). When
 error occurs -1 is returned and errno is set accordingly:
 
-EINVAL  any of the passed pointers is NULL
-EINVAL  *rb* was not initialized or was freed earlier
-EAGAIN  ring buffer operates in non blocking mode and resources are temporary
+* EINVAL  any of the passed pointers is NULL
+* EINVAL  *rb* was not initialized or was freed earlier
+* EAGAIN  ring buffer operates in non blocking mode and resources are temporary
 unavailable
 
 rb_clear
 --------
+
+~~~.c
+int rb_clear(struct rb *rb)
+~~~
 
 Simply clears *rb* from all data. Note, if security is concern, that data is
 not actually cleared from memory (it is not zeroed) but only internal pointers
@@ -213,6 +217,11 @@ are resetted.
 
 rb_count and rb_space
 ---------------------
+
+~~~.c
+size_t rb_count(const struct rb *rb)
+size_t rb_space(const struct rb *rb)
+~~~
 
 Returns respectively, number of elements in buffer and number of elements that
 can be yet put on buffer without prior read.
