@@ -10,17 +10,16 @@
 #include <pthread.h>
 #include <stdlib.h>
 
-static int run;
-
 struct tdata
 {
   struct rb *rb;
-  uint8_t *data;
+  unsigned char *data;
   int len;
   int objsize;
   size_t buflen;
 };
 
+#ifdef LIBRB_PTHREAD
 static void *consumer(void *arg)
 {
   struct tdata *data = arg;
@@ -54,16 +53,17 @@ static void multi_thread(int rblen, int readlen, int writelen, int objsize)
   pthread_t prod;
 
   size_t buflen = readlen > writelen ? readlen : writelen;
-  uint8_t *send_buf = malloc(objsize * buflen);
-  uint8_t *recv_buf = malloc(objsize * buflen);
+  unsigned char *send_buf = malloc(objsize * buflen);
+  unsigned char *recv_buf = malloc(objsize * buflen);
+  size_t i;
 
   struct rb rb;
   struct tdata consdata;
   struct tdata proddata;
-  static uint32_t c;
+  static unsigned long c;
   c++;
 
-  for (int i = 0; i != objsize * buflen; ++i)
+  for (i = 0; i != objsize * buflen; ++i)
     {
       send_buf[i] = i;
       recv_buf[i] = 0;
@@ -92,7 +92,7 @@ static void multi_thread(int rblen, int readlen, int writelen, int objsize)
   if (memcmp(send_buf, recv_buf, objsize * buflen) != 0)
     {
       printf("[NOK]\n");
-      printf("[%d] a = %zu, b = %d, c = %d, d = %d\n",
+      printf("[%lu] a = %lu, b = %d, c = %d, d = %d\n",
              c, buflen, rblen, readlen, writelen);
     };
 
@@ -100,6 +100,7 @@ static void multi_thread(int rblen, int readlen, int writelen, int objsize)
   free(send_buf);
   free(recv_buf);
 }
+#endif
 
 static void single_thread(int rblen, int readlen, int writelen, int objsize)
 {
@@ -107,20 +108,28 @@ static void single_thread(int rblen, int readlen, int writelen, int objsize)
   size_t written;
   size_t buflen = readlen > writelen ? readlen : writelen;
 
-  uint8_t send_buf[objsize * buflen];
-  uint8_t recv_buf[objsize * buflen];
+  unsigned char *send_buf = malloc(objsize * buflen);
+  unsigned char *recv_buf = malloc(objsize * buflen);
+
   struct rb rb;
-  static uint32_t c;
+  static unsigned long c;
+  int flags;
+  size_t i;
 
   c++;
 
-  for (int i = 0; i != objsize * buflen; ++i)
+  for (i = 0; i != objsize * buflen; ++i)
     {
       send_buf[i] = i;
       recv_buf[i] = 0;
     }
 
-  rb_new(&rb, rblen, objsize, O_NONBLOCK | O_NONTHREAD);
+  flags = 0;
+#ifdef LIBRB_PTHREAD
+  flags = O_NONBLOCK | O_NONTHREAD;
+#endif
+
+  rb_new(&rb, rblen, objsize, flags);
 
   written = 0;
   read = 0;
@@ -151,23 +160,26 @@ static void single_thread(int rblen, int readlen, int writelen, int objsize)
   if (memcmp(send_buf, recv_buf, buflen * objsize) != 0)
     {
       printf("[NOK]\n");
-      printf("[%d] a = %zu, b = %d, c = %d, d = %d\n",
+      printf("[%lu] a = %lu, b = %d, c = %d, d = %d\n",
               c, buflen, rblen, readlen, writelen);
     }
 
+  free(send_buf);
+  free(recv_buf);
   rb_destroy(&rb);
 }
 
-int main(int argc, char *argv[])
+int main(void)
 {
-  uint32_t a,b,c,d;
-  uint32_t al, bl, cl, dl;
-  int i = 0;
+  unsigned long a,b,c,d;
+  unsigned long al, bl, cl, dl;
 
   al = 1024;
   bl = 1024;
   cl = 1024;
   dl = 1024;
+
+  printf("runnin tests\n");
 
   for (a = 2; a != al; a *= 2)
     {
@@ -177,14 +189,15 @@ int main(int argc, char *argv[])
             {
               for (d = 2; d != dl; d *= 2)
                 {
-                  printf("%d\n", ++i);
+#ifdef LIBRB_PTHREAD
                   multi_thread(a,b,c,d);
+#endif
                   single_thread(a,b,c,d);
                 }
             }
         }
     }
 
-  printf("finish\n");
+  printf("test done. If this is the only line, there were no errors\n");
   return 0;
 }

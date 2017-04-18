@@ -1,9 +1,9 @@
-LIBS = -lpthread
+LIBS =
 SRCS = rb.c
 MAIN = librb
 
 STD = -std=c89
-WARN = -Wall -Wextra -pedantic -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wwrite-strings -Winit-self -Wcast-align -Wstrict-aliasing -Wformat=2 -Wmissing-include-dirs -Wno-unused-parameter -Wuninitialized -Wstrict-overflow=5 -pedantic-errors
+WARN = -Wall -Wextra -pedantic
 CFLAGS = $(STD) $(WARN) -fPIC
 LDFLAGS = -shared
 
@@ -13,6 +13,13 @@ DESTDIR ?= `cat .destdir`
 CC ?=
 INC ?=
 LINC ?=
+THREADS ?=
+
+ifdef THREADS
+	LIBS += -lpthread
+	CFLAGS += -DLIBRB_PTHREAD
+endif
+
 
 OBJS = $(SRCS:.c=.o)
 
@@ -20,16 +27,20 @@ OBJS = $(SRCS:.c=.o)
 
 all: release
 
-release: WARN += -Werror
 release: CFLAGS += -O2
 release: $(MAIN)
 
 debug: CFLAGS += -O0 -ggdb -g3
 debug: $(MAIN)
 
+test: LDFLAGS=
+test: $(OBJS)
+	$(CC) $(CFLAGS) $(LIBS) $(LINC) $(LDFLAGS) -o librb-test $(OBJS) test.c
+	@./librb-test
+
 install:
-	install -m 0644 rb.h $(DESTDIR)/include
-	install -m 0755 $(MAIN).so.$(VERSION) $(DESTDIR)/lib
+	install -m 0644 -D -t $(DESTDIR)/include rb.h
+	install -m 0755 -D -t $(DESTDIR)/lib     $(MAIN).so.$(VERSION)
 	ln -sf $(MAIN).so.$(VERSION) $(DESTDIR)/lib/$(MAIN).so.$(VERSION_MAJOR)
 	ln -sf $(MAIN).so.$(VERSION) $(DESTDIR)/lib/$(MAIN).so
 	echo $(DESTDIR) > .destdir
@@ -45,7 +56,7 @@ uninstall:
 	fi
 
 clean:
-	$(RM) *.o *~ $(MAIN).so.$(VERSION)
+	$(RM) *.o *~ $(MAIN).so.$(VERSION) librb-test
 
 $(MAIN): $(OBJS)
 	$(CC) $(CFLAGS) $(LIBS) $(LINC) $(LDFLAGS) -o $(MAIN).so.$(VERSION) $(OBJS)
