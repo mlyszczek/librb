@@ -1,33 +1,3 @@
-Requirements:
-
-  * libc (glibc, uclibc)
-  * pthread (only if THREADS are enabled)
-
-Install locally:
-
-    make && make install
-
-To install with pthread support do
-
-    make THREADS=1 && make install
-
-To install to different directory do
-
-    DESTDIR=/custom/dir make install
-
-Cross Compile:
-
-To compile for different architecture 3 env variables should be set
-
-  * CC - cross compiler
-  * INC - staging include directory
-  * LINC - staging library directory
-
-Example make might look like this
-
-    $ CC=arm-none-eabi \
-      INC=-I/usr/arm-none-eabi/usr/include \
-      LINC=-L/usr/arm-none-eabi/usr/lib \
-      make
-
-    $ DESTDIR=/usr/arm-none-eabi/usr make install
+./configure
+make
+make install

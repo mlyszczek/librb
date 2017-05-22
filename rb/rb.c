@@ -20,7 +20,7 @@
 #   include <fcntl.h>
 #endif
 
-#include "version.h"
+#include "config.h"
 
 
 /* ==== private functions =================================================== */
