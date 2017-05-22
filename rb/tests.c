@@ -110,7 +110,6 @@ static void multi_thread(void)
 
     if (rc)
     {
-        printf("[NOK]\n");
         printf("[%lu] a = %lu, b = %d, c = %d, d = %d\n",
                 c, buflen, t_rblen, t_readlen, t_writelen);
     };
