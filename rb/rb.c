@@ -467,7 +467,7 @@ int rb_new
     rb->force_exit = 0;
     rb->flags = flags;
 
-#ifndef HAVE_PTHREAD
+#if HAVE_PTHREAD == 0
     return 0;
 #else
     if (flags & O_NONTHREAD)
