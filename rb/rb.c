@@ -156,8 +156,6 @@ static long rb_recvs
     return count;
 }
 
-#if HAVE_PTHREAD
-
 
 /* ==========================================================================
     Reads count data  from  rb  into  buffer.   Function  will  block  until
@@ -171,6 +169,9 @@ static long rb_recvs
     (actually it will copy all of data  that  is  in  rb)  and  will  return
     with   number   of   elements   stored   in    buffer.
    ========================================================================== */
+
+
+#if HAVE_PTHREAD
 
 
 static long rb_recvt
@@ -260,7 +261,8 @@ static long rb_recvt
     return read;
 }
 
-#endif
+
+#endif  /* HAVE_PTHREAD */
 
 
 /* ==========================================================================
@@ -324,8 +326,6 @@ static long rb_sends
     return count;
 }
 
-#if HAVE_PTHREAD
-
 
 /* ==========================================================================
     Writes count data pointed by buffer in to rb.  Function will block until
@@ -338,6 +338,9 @@ static long rb_sends
     expects, function will copy as many elements as it can and  will  return
     with number of elements written to rb.
    ========================================================================== */
+
+
+#if HAVE_PTHREAD
 
 
 long rb_sendt
@@ -422,7 +425,7 @@ long rb_sendt
     return written;
 }
 
-#endif
+#endif  /* HAVE_PTHREAD */
 
 
 /* ==== public functions ==================================================== */
