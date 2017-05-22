@@ -2,3 +2,11 @@ lib_LTLIBRARIES = librb.la
 librb_la_SOURCES = rb.c
 librb_la_LDFLAGS = -version-info 1:1:0
 librb_la_CFLAGS = -I$(top_srcdir)/include
+
+check_PROGRAMS = tests
+tests_SOURCES = rb.c tests.c
+tests_CFLAGS = -I$(top_srcdir)/include
+tests_LDFLAGS = $(PTHREAD_CFLAGS)
+
+TESTS = $(check_PROGRAMS)
+LOG_DRIVER = $(top_srcdir)/tap-driver

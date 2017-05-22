@@ -1,5 +1,6 @@
 AC_INIT([rb], [1.1.0], [michal.lyszczek@bofc.pl])
 AM_INIT_AUTOMAKE([foreign])
+AX_PTHREAD
 AC_PROG_CC
 AC_PROG_LIBTOOL
 AC_CONFIG_MACRO_DIRS([m4])

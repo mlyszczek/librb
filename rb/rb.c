@@ -7,6 +7,7 @@
 /* ==== include files ======================================================= */
 
 
+#include "config.h"
 #include "rb.h"
 
 #include <errno.h>
@@ -14,13 +15,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef LIBRB_PTHREAD
+#if HAVE_PTHREAD
 #   include <pthread.h>
 #   include <sys/socket.h>
 #   include <fcntl.h>
 #endif
-
-#include "config.h"
 
 
 /* ==== private functions =================================================== */
@@ -157,7 +156,7 @@ static long rb_recvs
     return count;
 }
 
-#ifdef LIBRB_PTHREAD
+#if HAVE_PTHREAD
 
 
 /* ==========================================================================
@@ -325,7 +324,7 @@ static long rb_sends
     return count;
 }
 
-#ifdef LIBRB_PTHREAD
+#if HAVE_PTHREAD
 
 
 /* ==========================================================================
@@ -444,7 +443,7 @@ int rb_new
     unsigned long  flags         /* flags to create buffer with */
 )
 {
-#ifdef LIBRB_PTHREAD
+#if HAVE_PTHREAD
     int            e;            /* holds errno value */
 #endif
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
@@ -468,7 +467,7 @@ int rb_new
     rb->force_exit = 0;
     rb->flags = flags;
 
-#ifndef LIBRB_PTHREAD
+#ifndef HAVE_PTHREAD
     return 0;
 #else
     if (flags & O_NONTHREAD)
@@ -557,7 +556,7 @@ long rb_read
         return -1;
     }
 
-#ifdef LIBRB_PTHREAD
+#if HAVE_PTHREAD
     return rb->recv(rb, buffer, count, 0);
 #else
     return rb_recvs(rb, buffer, count, 0);
@@ -584,7 +583,7 @@ long rb_recv
         return -1;
     }
 
-#ifdef LIBRB_PTHREAD
+#if HAVE_PTHREAD
     if (flags & MSG_PEEK && (rb->flags & O_NONTHREAD) != O_NONTHREAD)
     {
         errno = EINVAL;
@@ -626,7 +625,7 @@ long rb_write
         return -1;
     }
 
-#ifdef LIBRB_PTHREAD
+#if HAVE_PTHREAD
     return rb->send(rb, buffer, count, 0);
 #else
     return rb_sends(rb, buffer, count, 0);
@@ -653,7 +652,7 @@ long rb_send
         return -1;
     }
 
-#ifdef LIBRB_PTHREAD
+#if HAVE_PTHREAD
     return rb->send(rb, buffer, count, flags);
 #else
     return rb_sends(rb, buffer, count, flags);
@@ -677,14 +676,14 @@ int rb_clear
         return -1;
     }
 
-#ifdef LIBRB_PTHREAD
+#if HAVE_PTHREAD
     pthread_mutex_lock(&rb->lock);
 #endif
 
     rb->head = 0;
     rb->tail = 0;
 
-#ifdef LIBRB_PTHREAD
+#if HAVE_PTHREAD
     pthread_mutex_unlock(&rb->lock);
 #endif
 
@@ -721,7 +720,7 @@ int rb_destroy
         return 0;
     }
 
-#ifdef LIBRB_PTHREAD
+#if HAVE_PTHREAD
     if (rb->flags & O_NONTHREAD)
     {
         free(rb->buffer);
