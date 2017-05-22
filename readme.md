@@ -41,8 +41,9 @@ Dependencies
 ============
 
 Library is C89 complaint and will work under any POSIX environment that
-implements pthreads and libc. If LIBRB_PTHREAD is disabled, then the only
-requirenment is C89 compiler and libc.
+implements pthreads and libc. If target system doesn't have posix, no worries.
+in such case the only requirenment is C89 compiler and libc (no threads then
+though). This is automatically detected.
 
 License
 =======
@@ -52,32 +53,16 @@ Library is licensed under BSD 2-clause license. See LICENSE file for details
 Compiling and installing
 ========================
 
-Standard **make** and **make install** should be enough. If you want to
-install to different directory, just use **DESTDIR=/custom/path make
-install**.
+Project uses standard automake so to build you need to
 
-To compile with pthread support, just add THREAD=1 to make argument like
-**make THREAD=1**
+autoreconf -i
+./configure
+make
+make install
 
-To compile for different architecture 3 env variables should be set
+for tests run:
 
-  * CC - cross compiler
-  * INC - staging include directory
-  * LINC - staging library directory
-
-Example make might look like this
-
-~~~.sh
-$ CC=arm-none-eabi \
-  INC=-I/usr/arm-none-eabi/usr/include \
-  LINC=-L/usr/arm-none-eabi/usr/lib \
-  make
-
-$ DESTDIR=/usr/arm-none-eabi/usr make install
-~~~
-
-For tests simply run **make test** or **make test THREAD=1** to test with
-threads.
+make check
 
 Functions description
 =====================
@@ -234,4 +219,5 @@ Michał Łyszczek <michal.lyszczek@bofc.pl>
 Thanks to
 =========
 
-Code beautified using GreatCode (https://sourceforge.net/projects/gcgreatcode)
+Myself for developing very simple unit test framework
+(https://github.com/mlyszczek/mtest) this code uses
