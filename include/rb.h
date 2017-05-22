@@ -1,16 +1,17 @@
-/*
- ===============================================================================
-    Licensed under BSD 2-clause license. See LICENSE file for more information.
+/* ==========================================================================
+    Licensed under BSD 2clause license. See LICENSE file for more information
     Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
- ===============================================================================
- */
+   ========================================================================== */
+
 
 #ifndef LIBRB_H
 #define LIBRB_H 1
 
+#include "config.h"
+
 #include <stddef.h>
 
-#ifdef LIBRB_PTHREAD
+#if HAVE_PTHREAD
 
 #include <pthread.h>
 #include <sys/socket.h>
@@ -40,7 +41,7 @@ struct rb
 
     unsigned char *buffer;
 
-#ifdef LIBRB_PTHREAD
+#if HAVE_PTHREAD
     pthread_mutex_t lock;
     pthread_cond_t wait_data;
     pthread_cond_t wait_room;
