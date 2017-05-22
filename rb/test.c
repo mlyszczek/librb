@@ -1,7 +1,8 @@
-/*****************************************************************************
- * Licensed under BSD 3-clause license. See LICENSE file for more information.
- * Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
- ****************************************************************************/
+/* ==========================================================================
+    Licensed under BSD 2clause license. See LICENSE file for more information
+    Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
+   ========================================================================== */
+
 
 #include "rb.h"
 #include <fcntl.h>
