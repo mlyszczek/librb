@@ -7,62 +7,29 @@
 #ifndef LIBRB_H
 #define LIBRB_H 1
 
-#include "config.h"
-
 #include <stddef.h>
-
-#if HAVE_PTHREAD
-
-#include <pthread.h>
-#include <sys/socket.h>
-
-#define O_NONTHREAD 0x00010000L
-
-struct rb;
-
-typedef long (*rb_send_f)(struct rb *rb, const void *buffer, size_t len,
-                          unsigned long flags);
-typedef long (*rb_recv_f)(struct rb *rb, void *buffer, size_t len,
-                          unsigned long flags);
-
-#endif
 
 #ifndef MSG_PEEK
 #define MSG_PEEK 2
 #endif
 
-struct rb
-{
-    size_t head;
-    size_t tail;
-    size_t count;
-    size_t object_size;
-    unsigned long flags;
+#define O_NONTHREAD 0x00010000L
 
-    unsigned char *buffer;
+struct rb;
 
-#if HAVE_PTHREAD
-    pthread_mutex_t lock;
-    pthread_cond_t wait_data;
-    pthread_cond_t wait_room;
+typedef long (*rb_send_f)(struct rb *, const void *, size_t , unsigned long);
+typedef long (*rb_recv_f)(struct rb *, void *, size_t, unsigned long);
 
-    rb_send_f send;
-    rb_recv_f recv;
-#endif
+struct rb *rb_new(size_t, size_t, unsigned long);
+long rb_read(struct rb *, void *, size_t);
+long rb_recv(struct rb *, void *, size_t, unsigned long);
+long rb_write(struct rb *, const void *, size_t);
+long rb_send(struct rb *, const void *, size_t, unsigned long);
 
-    int force_exit;
-};
-
-int rb_new(struct rb *rb, size_t count, size_t object_size, unsigned long flags);
-long rb_read(struct rb *rb, void *buffer, size_t count);
-long rb_recv(struct rb *rb, void *buffer, size_t count, unsigned long flags);
-long rb_write(struct rb *rb, const void *buffer, size_t count);
-long rb_send(struct rb *rb, const void *buffer, size_t count, unsigned long flags);
-
-int rb_clear(struct rb *rb);
-int rb_destroy(struct rb *rb);
-const char *rb_version(char *major, char *minor, char *patch);
-size_t rb_count(const struct rb *rb);
-size_t rb_space(const struct rb *rb);
+int rb_clear(struct rb *);
+int rb_destroy(struct rb *);
+const char *rb_version(char *, char *, char *);
+size_t rb_count(const struct rb *);
+size_t rb_space(const struct rb *);
 
 #endif

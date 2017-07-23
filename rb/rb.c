@@ -4,11 +4,17 @@
    ========================================================================== */
 
 
-/* ==== include files ======================================================= */
+/* ==========================================================================
+      _               __            __           __   ____ _  __
+     (_)____   _____ / /__  __ ____/ /___   ____/ /  / __/(_)/ /___   _____
+    / // __ \ / ___// // / / // __  // _ \ / __  /  / /_ / // // _ \ / ___/
+   / // / / // /__ / // /_/ // /_/ //  __// /_/ /  / __// // //  __/(__  )
+  /_//_/ /_/ \___//_/ \__,_/ \__,_/ \___/ \__,_/  /_/  /_//_/ \___//____/
+
+   ========================================================================== */
 
 
 #include "config.h"
-#include "rb.h"
 
 #include <errno.h>
 #include <stddef.h>
@@ -21,8 +27,67 @@
 #   include <fcntl.h>
 #endif
 
+#include "rb.h"
 
-/* ==== private functions =================================================== */
+
+/* ==========================================================================
+                  _                __           __
+    ____   _____ (_)_   __ ____ _ / /_ ___     / /_ __  __ ____   ___   _____
+   / __ \ / ___// /| | / // __ `// __// _ \   / __// / / // __ \ / _ \ / ___/
+  / /_/ // /   / / | |/ // /_/ // /_ /  __/  / /_ / /_/ // /_/ //  __/(__  )
+ / .___//_/   /_/  |___/ \__,_/ \__/ \___/   \__/ \__, // .___/ \___//____/
+/_/                                              /____//_/
+   ========================================================================== */
+
+
+/*
+ * Ring buffer information.  This needs to be  hidden  in  c,  because  some
+ * fields might not be accessible depending on compilation choices.  Imagine
+ * these beautiful segfaults, when shared library would be compiled with all
+ * fields, and application using library would  be  compiled  without  these
+ * fields - it would allocate less memory on stack than it would be  needed.
+ * We use malloc anyway to reserve memory for buffer, so it  is  not  a  big
+ * deal to reserve memory also for this structure
+ */
+
+
+struct rb
+{
+    size_t head;               /* pointer to buffer's head */
+    size_t tail;               /* pointer to buffer's tail */
+    size_t count;              /* maximum number of elements in buffer */
+    size_t object_size;        /* size of a single object in buffer */
+    unsigned long flags;       /* flags used with buffer */
+
+    unsigned char *buffer;     /* pointer to ring buffer in memory */
+
+#if HAVE_PTHREAD
+    pthread_mutex_t lock;      /* mutex for concurrent access */
+    pthread_cond_t wait_data;  /* ca, will block if buffer is empty */
+    pthread_cond_t wait_room;  /* ca, will block if buffer is full */
+
+    rb_send_f send;            /* function pointer with implementation */
+    rb_recv_f recv;            /* function pointer with implementation */
+#endif
+
+    int force_exit;            /* if set, library will stop all operations */
+};
+
+
+/* ==========================================================================
+                                   _                __
+                     ____   _____ (_)_   __ ____ _ / /_ ___
+                    / __ \ / ___// /| | / // __ `// __// _ \
+                   / /_/ // /   / / | |/ // /_/ // /_ /  __/
+                  / .___//_/   /_/  |___/ \__,_/ \__/ \___/
+                 /_/
+               ____                     __   _
+              / __/__  __ ____   _____ / /_ (_)____   ____   _____
+             / /_ / / / // __ \ / ___// __// // __ \ / __ \ / ___/
+            / __// /_/ // / / // /__ / /_ / // /_/ // / / /(__  )
+           /_/   \__,_//_/ /_/ \___/ \__//_/ \____//_/ /_//____/
+
+   ========================================================================== */
 
 
 /* ==========================================================================
@@ -428,19 +493,31 @@ long rb_sendt
 #endif  /* HAVE_PTHREAD */
 
 
-/* ==== public functions ==================================================== */
+/* ==========================================================================
+                                        __     __ _
+                         ____   __  __ / /_   / /(_)_____
+                        / __ \ / / / // __ \ / // // ___/
+                       / /_/ // /_/ // /_/ // // // /__
+                      / .___/ \__,_//_.___//_//_/ \___/
+                     /_/
+               ____                     __   _
+              / __/__  __ ____   _____ / /_ (_)____   ____   _____
+             / /_ / / / // __ \ / ___// __// // __ \ / __ \ / ___/
+            / __// /_/ // / / // /__ / /_ / // /_/ // / / /(__  )
+           /_/   \__,_//_/ /_/ \___/ \__//_/ \____//_/ /_//____/
+
+   ========================================================================== */
 
 
 /* ==========================================================================
     Initializes ring buffer and allocates all  necessary  resources.   Newly
-    created rb will be stored in sturct pointer by  'rb'.   In  case  of  an
-    function error, state of 'rb' object is undefinied
+    created rb  will  returned  as  a  pointer.   In  case  of  an  function
+    error, NULL will be returned
    ========================================================================== */
 
 
-int rb_new
+struct rb *rb_new
 (
-    struct rb*     rb,           /* ring buffer to initialize */
     size_t         count,        /* number of elements that buffer can hold */
     size_t         object_size,  /* size, in bytes, of a single object */
     unsigned long  flags         /* flags to create buffer with */
@@ -449,18 +526,27 @@ int rb_new
 #if HAVE_PTHREAD
     int            e;            /* holds errno value */
 #endif
+    struct rb     *rb;           /* pointer to newly created buffer */
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
-    if (rb == NULL || rb_is_power_of_two(count) == 0)
+
+    if (rb_is_power_of_two(count) == 0)
     {
         errno = EINVAL;
-        return -1;
+        return NULL;
+    }
+
+    if ((rb = malloc(sizeof(*rb))) == NULL)
+    {
+        errno = ENOMEM;
+        return NULL;
     }
 
     if ((rb->buffer = malloc(count * object_size)) == NULL)
     {
+        free(rb);
         errno = ENOMEM;
-        return -1;
+        return NULL;
     }
 
     rb->head = 0;
@@ -471,7 +557,7 @@ int rb_new
     rb->flags = flags;
 
 #if HAVE_PTHREAD == 0
-    return 0;
+    return rb;
 #else
     if (flags & O_NONTHREAD)
     {
@@ -488,7 +574,7 @@ int rb_new
         rb->recv = rb_recvs;
         rb->send = rb_sends;
 
-        return 0;
+        return rb;
     }
 
     /*
@@ -516,7 +602,7 @@ int rb_new
         goto error;
     }
 
-    return 0;
+    return rb;
 
 error:
     pthread_mutex_destroy(&rb->lock);
@@ -524,10 +610,10 @@ error:
     pthread_cond_destroy(&rb->wait_room);
 
     free(rb->buffer);
-    rb->buffer = NULL;
+    free(rb);
 
     errno = e;
-    return -1;
+    return NULL;
 #endif
 }
 
@@ -727,7 +813,7 @@ int rb_destroy
     if (rb->flags & O_NONTHREAD)
     {
         free(rb->buffer);
-        rb->buffer = NULL;
+        free(rb);
         return 0;
     }
 
@@ -748,7 +834,7 @@ int rb_destroy
 
     pthread_mutex_lock(&rb->lock);
     free(rb->buffer);
-    rb->buffer = NULL;
+    free(rb);
     pthread_mutex_unlock(&rb->lock);
 
     pthread_mutex_destroy(&rb->lock);
@@ -756,7 +842,7 @@ int rb_destroy
     pthread_cond_destroy(&rb->wait_room);
 #else
     free(rb->buffer);
-    rb->buffer = NULL;
+    free(rb);
 #endif
 
     return 0;

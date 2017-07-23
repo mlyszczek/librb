@@ -73,7 +73,7 @@ static void multi_thread(void)
     size_t i;
     int rc;
 
-    struct rb rb;
+    struct rb *rb;
     struct tdata consdata;
     struct tdata proddata;
     static unsigned long c;
@@ -85,18 +85,18 @@ static void multi_thread(void)
         recv_buf[i] = 0;
     }
 
-    rb_new(&rb, t_rblen, t_objsize, 0);
+    rb = rb_new(t_rblen, t_objsize, 0);
 
     proddata.data = send_buf;
     proddata.len = t_writelen;
     proddata.objsize = t_objsize;
-    proddata.rb = &rb;
+    proddata.rb = rb;
     proddata.buflen = buflen;
 
     consdata.data = recv_buf;
     consdata.len = t_readlen;
     consdata.objsize = t_objsize;
-    consdata.rb = &rb;
+    consdata.rb = rb;
     consdata.buflen = buflen;
 
     pthread_create(&cons, NULL, consumer, &consdata);
@@ -114,7 +114,7 @@ static void multi_thread(void)
                 c, buflen, t_rblen, t_readlen, t_writelen);
     };
 
-    rb_destroy(&rb);
+    rb_destroy(rb);
     free(send_buf);
     free(recv_buf);
 }
@@ -131,7 +131,7 @@ static void single_thread(void)
     unsigned char *send_buf = malloc(t_objsize * buflen);
     unsigned char *recv_buf = malloc(t_objsize * buflen);
 
-    struct rb rb;
+    struct rb *rb;
     static unsigned long c;
     int flags;
     size_t i;
@@ -150,7 +150,7 @@ static void single_thread(void)
     flags = O_NONBLOCK | O_NONTHREAD;
 #endif
 
-    rb_new(&rb, t_rblen, t_objsize, flags);
+    rb = rb_new(t_rblen, t_objsize, flags);
 
     written = 0;
     read = 0;
@@ -164,7 +164,7 @@ static void single_thread(void)
                 writelen = buflen - written;
             }
 
-            written += rb_write(&rb, send_buf + written * t_objsize, writelen);
+            written += rb_write(rb, send_buf + written * t_objsize, writelen);
         }
 
         if (read != buflen)
@@ -174,7 +174,7 @@ static void single_thread(void)
                 readlen = buflen - read;
             }
 
-            read+= rb_read(&rb, recv_buf + read * t_objsize, readlen);
+            read+= rb_read(rb, recv_buf + read * t_objsize, readlen);
         }
     }
 
@@ -189,7 +189,7 @@ static void single_thread(void)
 
     free(send_buf);
     free(recv_buf);
-    rb_destroy(&rb);
+    rb_destroy(rb);
 }
 
 int main(void)
