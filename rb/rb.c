@@ -756,7 +756,8 @@ long rb_send
 
 int rb_clear
 (
-    struct rb*  rb  /* rb object */
+    struct rb*  rb     /* rb object */
+    int         clear  /* if set to 1, also clears memory */
 )
 {
     if (rb == NULL || rb->buffer == NULL)
@@ -768,6 +769,11 @@ int rb_clear
 #if HAVE_PTHREAD
     pthread_mutex_lock(&rb->lock);
 #endif
+
+    if (clear)
+    {
+        memset(buffer, 0x00, rb->count * rb->object_size);
+    }
 
     rb->head = 0;
     rb->tail = 0;
@@ -802,11 +808,6 @@ int rb_destroy
     {
         errno = EINVAL;
         return -1;
-    }
-
-    if (rb->buffer == NULL)
-    {
-        return 0;
     }
 
 #if HAVE_PTHREAD
