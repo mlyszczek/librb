@@ -1,3 +1,3 @@
 ACLOCAL_AMFLAGS=-I m4
 
-SUBDIRS = include rb
+SUBDIRS = include rb man

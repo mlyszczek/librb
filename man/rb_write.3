@@ -1,0 +1,68 @@
+.TH "rb_write" "3" "24 July 2017 (v2.0.0)" "bofc.pl"
+
+.SH NAME
+\fBrb_write\fR, \fBrb_send\fR - functions to put data on ring buffer
+
+.SH SYNOPSIS
+
+.sh
+.BI "#include <librb.h>"
+
+.sh
+.BI "long rb_write(struct rb *" rb ", const void *" buffer ","
+.BI "size_t " count ");"
+.br
+.BI "long rb_send(struct rb *" rb ", const void *" buffer ","
+.BI "size_t " count ", unsigned long " flags ");"
+
+.SH DESCRIPTION
+\fBrb_write()\fR copies at most \fIcount\fB \fBelements\fR from \fIbuffer\fR
+to \fIrb\fR buffer.
+
+Note by \fBelements\fR we don't mean \fBbytes\fR. For example if
+\fBobject_size\fR is 4 bytes, and \fIcount\fR is 3, this will copy 4 * 3 = 12
+bytes from \fIbuffer\fR
+
+Write functions works the same way in multi-threaded mode as read ones. Please
+see \fBrb_read\fR (3) description for more details.
+
+\fBrb_send()\fR works the same way as \fBrb_write()\fR but also accepts
+following \fIflags\fR
+
+.TP
+.B MSG_DONTWAIT
+Only works in multi threaded environment, on single threaded mode this is
+default.  When passed and \fIrb\fR buffer contains less free \fBelements\fR than
+passed in \fIcount\fR, function will copy all \fBelements\fR from \fIbuffer\fR
+into \fBrb\fR and will return immediately.
+
+.SH RETURN VALUES
+On successfull write, function will return number of \fBelements\fR it stored in
+\fIrb\fR. Returned value can be less than \fIcount\fR if \fIrb\fR doesn't
+contain enough free space and function operates in non blocking mode. In such
+case it is also ok for function to return 0 - meaning \fIrb\fR is full. On
+errors function returns -1, in such case, \fIrb\fR buffer is left intact.
+
+.SH ERRORS
+
+.TP
+.B EINVAL
+Any of the passed pointers is NULL
+
+.TP
+.B EAGAIN
+This error will be set, when \fIrb\fR is operating in non blocking mode, and
+\fIrb\fR buffer contains less free \fBelements\fR space than requested by
+\fIcount\fR. Note, this is not an actual error, and will not happen when
+function returns -1.
+
+.SH SEE ALSO
+.BR rb_overview (7),
+.BR rb_new (3),
+.BR rb_destroy (3),
+.BR rb_read (3),
+.BR rb_recv (3),
+.BR rb_clear (3),
+.BR rb_count (3),
+.BR rb_space (3),
+.BR rb_version (3)

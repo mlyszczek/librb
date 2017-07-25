@@ -1,0 +1,116 @@
+.TH "rb_overview" "7" "24 July 2017 (v2.0.0)" "bofc.pl"
+
+.SH NAME
+\fBrb_overview\fR - quick overview of librb ring buffer library
+
+.SH SYNOPSIS
+\fBlibrb\fR - library that provides fast, easy to use ring buffer implementation.
+Its interface is very similar to read/write functions from \fBPOSIX\fR. Basic
+usage can be done with only 4 functions:
+
+.sh
+.BI "#include <librb.h>"
+
+.sh
+.BI "struct rb *rb_new(size_t " count ", size_t " object_size ","
+.BI "unsigned long " flags ");"
+.br
+.BI "int rb_destroy(struct rb *" rb ");"
+.br
+.BI "long rb_read(struct rb *" rb ", void *" buffer ", size_t " count ");"
+.br
+.BI "long rb_write(struct rb *" rb ", const void *" buffer ","
+.BI "size_t " count ");"
+
+Additinal functions are provided for better control over buffer
+
+.sh
+.BI "long rb_recv(struct rb *" rb ", void *" buffer ", size_t " count ","
+.BI "unsigned long " flags ");"
+.br
+.BI "long rb_send(struct rb *" rb ", const void *" buffer ","
+.BI "size_t " count ", unsigned long " flags ");"
+.br
+.BI "int rb_clear(struct rb *" rb ", int " clear ");"
+.br
+.BI "size_t rb_count(struct rb *" rb ");"
+.br
+.BI "size_t rb_space(struct rb *" rb ");"
+.br
+.BI "const char *rb_version(char *" major ", char *" minor ", char *" patch ");"
+
+.SH DESCRIPTION
+\fBlibrb\fR is thread safe and thread aware.   If  there  are  no  resources
+available while reading or writting, caller thread gets locked  and  doesn't use
+any resources  until  data  is  available.   Ring  buffer  can  also  be
+configured to work in non-blocking mode, so calls from read and  write  will
+return immediately when there are not enough resources.  malloc and free are
+called only in new and destory functions.  Thread awarness can  be  disabled via
+\fBO_NONTHREAD\fR flags passed to \fBrb_new()\fR. In such case all calls to rb
+function will be non blocking.  Library can also be  compiled  without thread
+support at all, then it can be used even in very constrained platforms.
+
+As this library is focused on speed, user can create buffer with only  power of
+two count (n^2).  Thanks to this solution there are much less conditional jumps.
+Altough user is limited to number of elements that can be stored  in buffer,
+single element can be any size.  Thanks to that, ring buffer can  be used with
+raw data (like from 8bit adc when object size is 1 byte) or bigger raw data
+(like from 12bit adc when object size is  2  bytes)  or  even  more
+sophisticated types like structures  with  any  number  of  paraneters  when
+object size is set to sizeof(struct).
+
+.SH EXAMPLE
+Please note, that example is missing error handling for simplicity.
+
+.nf
+#include <rb.h>
+#include <stdio.h>
+
+int main(void)
+{
+    char i;
+    char data[] = "abcdefghij";
+    struct rb *rb;
+
+    /* initialize ring buffer with 32 1-byte elements */
+    rb = rb_new(32, 1, O_NONBLOCK | O_NONTHREAD);
+
+    /* add data to buffer one byte at a time */
+    for (i = '0'; i <= '9'; ++i)
+        rb_write(rb, &i, 1);
+
+    /* add data in a single burst */
+    rb_write(rb, data, sizeof(data) - 1);
+
+    /* print data in packets of 8 bytes */
+    for (;;)
+    {
+        int bytes_read;
+        char buf[8 + 1] = {0};
+
+        bytes_read = rb_read(rb, buf, 8);
+
+        if (bytes_read == 0) /* nothing left to read */
+            break;
+
+        printf("%s\n", buf);
+    }
+
+    /* clean up */
+
+    rb_destroy(rb);
+    return 0;
+}
+
+.SH SEE ALSOQ
+.BR rb_overview (7),
+.BR rb_new (3),
+.BR rb_destroy (3),
+.BR rb_read (3),
+.BR rb_recv (3),
+.BR rb_write (3),
+.BR rb_send (3),
+.BR rb_clear (3),
+.BR rb_count (3),
+.BR rb_space (3),
+.BR rb_version (3)

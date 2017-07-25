@@ -1,0 +1,80 @@
+.TH "rb_new" "3" "24 July 2017 (v2.0.0)" "bofc.pl"
+
+.SH NAME
+\Brb_new\fR - create new ring buffer
+
+.SH SYNOPSIS
+
+.sh
+.BI "#include <librb.h>"
+
+.sh
+.BI "struct rb *rb_new(size_t " count ", size_t " object_size ","
+.BI "unsigned long " flags ");"
+
+.SH DESCRIPTION
+\fBrb_new\fR creates new new ring buffer object with maximum \fIcount\fR
+elements, each of \fIobject_size\fB bytes with \fIflags\fB. Handle to ring
+buffer is returned on successfull initalization. Loosing this pointer will lead
+to memory leak.
+
+\fIcount\fR and \fIobject_size\fR describes buffer sizes. Library will allocate
+on callers heap (\fIcount\fR * \fIobject_size\fR) bytes. \fIcount\fR must be a
+power of two number (ie. 4, 64, 1024), as library tries to avoid unecessary
+conditional jump to improve performance. \fIobject_size\fR determines how big a
+single element is. This value is constant for lifetime of a ring buffer.
+\fIobject_size\fR might be for example \fBsizeof(uint8_t)\fR or
+\fBsizeof(uint32_t)\fR or even \fBsizeof(struct my_msg)\fR. In short,
+\fIobject_size\fR should be a size of an object, ring buffer will hold. You
+should not write nor read objects of different size than created one, as this
+will lead to undefined behaviour or even crashes.
+
+Function can accept following \fIflags\fR
+
+.TP
+.B O_NONBLOCK
+if set, all calls to library functions will return immediately even if buffer
+is full or empty. Proper functions will then return with errno set to
+\fBEAGAIN\fR and number of elements actually commited.
+
+.TP
+.B O_NONTHREAD
+this can be set only when library has been compiled with \fBLIBRB_PTHREAD\fR
+otherwise, this flag is ignored. If set, \fBlibrb\fR functions will not be using
+\fBpthread\fR. This should be used only when you are sure that \fBrb\fR object
+will be accessed at most by 1 thread at a time. If more than 1 thread will try
+access \fBrb\fR object when this flag is set, such call will result in undefined
+behaviour. When \fBO_NONTHREAD\fR is set, \fBO_NONBLOCK\fR should also be set so
+all function calls are non-blocking. If \fBLIBRB_PTHREAD\fR is not set, funcions
+behave as (\fBO_NONTHREAD\fR | \fBO_NONBLOCK\fR) flag was set.
+
+.SH RETURNED VALUES
+If no errors have been detected, function will return pointer to newly created
+ring buffer, otherwise NULL is returned
+
+.SH ERRORS
+
+.TP
+.B EINVAL
+\fIcount\fR is not a power of two number (like 4, 64, 1024)
+
+.TP
+.B EINVAL
+\fBO_NONTHREAD\fR was set but \fBO_NONBLOCK\fR was not (only when library was
+compiled with \fBpthread\fR support
+
+.TP
+.B ENOMEM
+couldn't allocate memory for given \fIcount\fB and \fIobject_size\fB
+
+.SH SEE ALSO
+.BR rb_overview (7),
+.BR rb_destroy (3),
+.BR rb_read (3),
+.BR rb_recv (3),
+.BR rb_write (3),
+.BR rb_send (3),
+.BR rb_clear (3),
+.BR rb_count (3),
+.BR rb_space (3),
+.BR rb_version (3)

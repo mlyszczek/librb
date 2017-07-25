@@ -1,0 +1,38 @@
+.TH "rb_destroy" "3" "24 July 2017 (v2.0.0)" "bofc.pl"
+
+.SH NAME
+\fBrb_destroy\fR - frees resources allocated by \fBrb_new()\fR
+
+.SH SYNOPSIS
+
+.sh
+.BI "int rb_destroy(struct rb *" rb ");"
+
+.SH DESCRIPTION
+Function frees resources allocated by \fBrb_new()\fR. If threading is enabled
+also forces \fBrb_write()\fR and \fBrb_read()\fR function family to return even
+in blocking mode, so user's thread using them can be joined. After calling this,
+\fIrb\fR that was freed, cannot be used anymore without calling \fBrb_new()\fR
+first. Passing same \fIrb\fR object twice, will result in segmentation fault.
+
+.SH RETURN VALUES
+Function will return 0 when all resources were freed, otherwise -1 is returned.
+If function returns -1 \fIrb\fR object is not modified.
+
+.SH ERRORS
+
+.TP
+.B EINVAL
+Passed \fIrb\fR is invalid (null)
+
+.SH SEE ALSO
+.BR rb_overview (7),
+.BR rb_new (3),
+.BR rb_read (3),
+.BR rb_recv (3),
+.BR rb_write (3),
+.BR rb_send (3),
+.BR rb_clear (3),
+.BR rb_count (3),
+.BR rb_space (3),
+.BR rb_version (3)

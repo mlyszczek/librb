@@ -1,0 +1,87 @@
+.TH "rb_read" "3" "24 July 2017 (v2.0.0)" "bofc.pl"
+
+.SH NAME
+\fBrb_read\fR, \fBrb_recv\fR - functions to retrieve data from ring buffer
+
+.SH SYNOPSIS
+
+.sh
+.BI "#include <librb.h>"
+
+.sh
+.BI "long rb_read(struct rb *" rb ", void *" buffer ", size_t " count ");"
+.br
+.BI "long rb_recv(struct rb *" rb ", void *" buffer ", size_t " count ","
+.BI "unsigned long " flags ");"
+
+.SH DESCRIPTION
+\fBrb_read()\fR copies at most \fIcount\fB \fBelements\fR from ring buffer
+\fIrb\fR to memory pointed by \fIbuffer\fB
+
+Note  \fBelements\fR we don't mean \fBbytes\fR. For example if
+\fBobject_size\fR is 4 bytes, and \fIcount\fR is 3, this will copy 4 * 3 = 12
+bytes into \fIbuffer\fR
+
+Functions can and will try to commit as many bytes as possible in a single
+burst, so it is better to call these function once with big *count* number than
+call it in a loop with count == 1.
+
+By default (if buffer wasn't created with O_NONBLOCK flag), every read and will
+block until it reads all element passed to the function. When read function
+blocks, caller thread is put to sleep, so it doesn't use any processor time,
+until it is waked by opossite write call, ie. when ring buffer is empty, and
+user calls \fBrb_read()\fR, thread will sleep until another thread calls
+\fBrb_write()\fR and puts some data for read operation.
+
+\fBrb_recv()\fR works the same but it also accepts \fIflags\fR. Possible
+\fIflags\fR are:
+
+.TP
+.B MSG_DONTWAIT
+Only works in multi threaded environment, on single threaded mode this is
+default.  When passed and \fIrb\fR buffer contains less \fBelements\fR than
+passed in \fIcount\fR, function will copy all bytes from \fIrb\fR into
+\fIbuffer\fR and will return immediately.
+
+.TP
+.B MSG_PEEK
+Reads from \fIrb\fR into \fIbuffer\fR as normal, but doesn't remove data from
+ \fIrb\fR, so consecutive calls to this function will return same data (provided
+that nobody called \fBrb_recv()\fR without this flag). Flag works only when when
+threading is disabled, otherwise it is ignored.
+
+.SH RETURN VALUES
+On successfull read, function will return number of \fBelements\fR it read and
+stored in \fIbuffer\fR. Returned value can be less than \fIcount\fR if \fIrb\fR
+doesn't contain enough data and function operates in non blocking mode. In such
+case it is also ok for function to return 0 - meaning buffer is empty. On errors
+function returns -1, in such case, \fIrb\fR buffer is left intact.
+
+.SH ERRORS
+
+.TP
+.B EINVAL
+Any of the passed pointers is NULL
+
+.TP
+.B EINVAL
+\fBMSG_PEEK\fR was passed but \fIrb\fR is operating in multi-threaded mode
+
+.TP
+.B EAGAIN
+This error will be set, when \fIrb\fR is operating in non blocking mode, and \fIrb\fR
+buffer contains less \fBelements\fR than requested by \fIcount\fR. Note, this is
+not an actual error, and will not happen when function returns -1.
+
+.SH SEE ALSO
+.BR rb_overview (7),
+.BR rb_new (3),
+.BR rb_destroy (3),
+.BR rb_read (3),
+.BR rb_recv (3),
+.BR rb_write (3),
+.BR rb_send (3),
+.BR rb_clear (3),
+.BR rb_count (3),
+.BR rb_space (3),
+.BR rb_version (3)
