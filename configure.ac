@@ -1,4 +1,4 @@
-AC_INIT([rb], [2.0.0], [michal.lyszczek@bofc.pl])
+AC_INIT([rb], [2.0.1], [michal.lyszczek@bofc.pl])
 AM_INIT_AUTOMAKE([foreign])
 AX_PTHREAD
 AC_PROG_CC
