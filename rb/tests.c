@@ -31,7 +31,7 @@ static int t_objsize;
 
 mt_defs();
 
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
 static void *consumer(void *arg)
 {
     struct tdata *data = arg;
@@ -146,7 +146,7 @@ static void single_thread(void)
     }
 
     flags = 0;
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
     flags = O_NONBLOCK | O_NONTHREAD;
 #endif
 
@@ -213,7 +213,7 @@ int main(void)
                 for (t_objsize = 2; t_objsize < t_objsize_max;
                      t_objsize += rand() % 512)
                 {
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
                     mt_run(multi_thread);
 #endif
                     mt_run(single_thread);

@@ -21,7 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
 #   include <pthread.h>
 #   include <sys/socket.h>
 #   include <fcntl.h>
@@ -61,7 +61,7 @@ struct rb
 
     unsigned char *buffer;     /* pointer to ring buffer in memory */
 
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
     pthread_mutex_t lock;      /* mutex for concurrent access */
     pthread_cond_t wait_data;  /* ca, will block if buffer is empty */
     pthread_cond_t wait_room;  /* ca, will block if buffer is full */
@@ -236,7 +236,7 @@ static long rb_recvs
    ========================================================================== */
 
 
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
 
 
 static long rb_recvt
@@ -327,7 +327,7 @@ static long rb_recvt
 }
 
 
-#endif  /* HAVE_PTHREAD */
+#endif  /* ENABLE_THREADS */
 
 
 /* ==========================================================================
@@ -405,7 +405,7 @@ static long rb_sends
    ========================================================================== */
 
 
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
 
 
 long rb_sendt
@@ -490,7 +490,7 @@ long rb_sendt
     return written;
 }
 
-#endif  /* HAVE_PTHREAD */
+#endif  /* ENABLE_THREADS */
 
 
 /* ==========================================================================
@@ -523,7 +523,7 @@ struct rb *rb_new
     unsigned long  flags         /* flags to create buffer with */
 )
 {
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
     int            e;            /* holds errno value */
 #endif
     struct rb     *rb;           /* pointer to newly created buffer */
@@ -556,7 +556,7 @@ struct rb *rb_new
     rb->force_exit = 0;
     rb->flags = flags;
 
-#if HAVE_PTHREAD == 0
+#if ENABLE_THREADS == 0
     return rb;
 #else
     if (flags & O_NONTHREAD)
@@ -645,7 +645,7 @@ long rb_read
         return -1;
     }
 
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
     return rb->recv(rb, buffer, count, 0);
 #else
     return rb_recvs(rb, buffer, count, 0);
@@ -672,7 +672,7 @@ long rb_recv
         return -1;
     }
 
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
     if (flags & MSG_PEEK && (rb->flags & O_NONTHREAD) != O_NONTHREAD)
     {
         errno = EINVAL;
@@ -714,7 +714,7 @@ long rb_write
         return -1;
     }
 
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
     return rb->send(rb, buffer, count, 0);
 #else
     return rb_sends(rb, buffer, count, 0);
@@ -741,7 +741,7 @@ long rb_send
         return -1;
     }
 
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
     return rb->send(rb, buffer, count, flags);
 #else
     return rb_sends(rb, buffer, count, flags);
@@ -766,7 +766,7 @@ int rb_clear
         return -1;
     }
 
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
     if ((rb->flags & O_NONBLOCK) == 0)
     {
         pthread_mutex_lock(&rb->lock);
@@ -781,7 +781,7 @@ int rb_clear
     rb->head = 0;
     rb->tail = 0;
 
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
     if ((rb->flags & O_NONBLOCK) == 0)
     {
         pthread_mutex_unlock(&rb->lock);
@@ -816,7 +816,7 @@ int rb_destroy
         return -1;
     }
 
-#if HAVE_PTHREAD
+#if ENABLE_THREADS
     if (rb->flags & O_NONTHREAD)
     {
         free(rb->buffer);
