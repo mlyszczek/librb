@@ -9,4 +9,5 @@ tests_CFLAGS = -I$(top_srcdir)/include
 tests_LDFLAGS = $(PTHREAD_CFLAGS)
 
 TESTS = $(check_PROGRAMS)
-LOG_DRIVER = $(top_srcdir)/tap-driver
+LOG_DRIVER = env AM_TAP_AWK='$(AWK)' $(SHELL) \
+	$(top_srcdir)/tap-driver.sh

@@ -5,6 +5,7 @@ AC_PROG_LIBTOOL
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_FILES([Makefile rb/Makefile include/Makefile man/Makefile])
 AC_CONFIG_SRCDIR([configure.ac])
+AC_REQUIRE_AUX_FILE([tap-driver.sh])
 AC_CONFIG_HEADERS([config.h])
 
 AC_CHECK_FUNCS([memcpy malloc free strcpy strtok])
