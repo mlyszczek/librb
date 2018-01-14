@@ -68,9 +68,6 @@ struct rb
     pthread_cond_t   wait_room;   /* ca, will block if buffer is full */
     pthread_cond_t   exit_cond;   /* signal cond when thread exits recv/send */
 
-    rb_send_f        send;         /* function pointer with implementation */
-    rb_recv_f        recv;         /* function pointer with implementation */
-
     int              tinsend;      /* number of threads inside send function */
     int              tinread;      /* number of threads inside recv function */
 #endif
@@ -699,9 +696,6 @@ struct rb *rb_new
             goto error;
         }
 
-        rb->recv = rb_recvs;
-        rb->send = rb_sends;
-
         return rb;
     }
 
@@ -709,8 +703,6 @@ struct rb *rb_new
      * Multithreaded environment
      */
 
-    rb->recv = rb_recvt;
-    rb->send = rb_sendt;
     rb->tinread = 0;
     rb->tinsend = 0;
 
@@ -800,12 +792,16 @@ long rb_recv
     }
 
 #if ENABLE_THREADS
+    if (rb->flags & O_NONTHREAD)
+    {
+        return rb_recvs(rb, buffer, count, flags);
+    }
 
     pthread_mutex_lock(&rb->lock);
     rb->tinread++;
     pthread_mutex_unlock(&rb->lock);
 
-    count = rb->recv(rb, buffer, count, flags);
+    count = rb_recvt(rb, buffer, count, flags);
 
     pthread_mutex_lock(&rb->lock);
     rb->tinread--;
@@ -865,11 +861,16 @@ long rb_send
     }
 
 #if ENABLE_THREADS
+    if (rb->flags & O_NONTHREAD)
+    {
+        return rb_sends(rb, buffer, count, flags);
+    }
+
     pthread_mutex_lock(&rb->lock);
     rb->tinsend++;
     pthread_mutex_unlock(&rb->lock);
 
-    count = rb->send(rb, buffer, count, flags);
+    count = rb_sendt(rb, buffer, count, flags);
 
     pthread_mutex_lock(&rb->lock);
     rb->tinsend--;

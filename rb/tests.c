@@ -39,7 +39,7 @@ static int data[128];
 static pthread_mutex_t multi_mutex;
 static pthread_mutex_t multi_mutex_count;
 static unsigned int multi_index;
-static unsigned int multi_index_count;
+static volatile unsigned int multi_index_count;
 
 mt_defs();
 
@@ -341,7 +341,7 @@ int main(void)
 
     srand(time(NULL));
 
-#if 0
+#if ENABLE_THREADS
     for (t_num_consumers = 2; t_num_consumers < t_num_consumers_max;
          t_num_consumers += rand() % 16)
     {
