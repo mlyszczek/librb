@@ -91,7 +91,6 @@ static void *multi_producer(void *arg)
         }
 
         rb_write(rb, &index, 1);
-        //fprintf(stderr, "[%ld] produced %u\n", syscall(SYS_gettid), index);
     }
 }
 
@@ -117,7 +116,6 @@ static void *multi_consumer(void *arg)
 
         if (overflow)
         {
-            //fprintf(stderr, "[%ld] overflow %u!!!!!!!!!!!!!!!!!\n", syscall(SYS_gettid), index);
             continue;
         }
 
@@ -125,7 +123,6 @@ static void *multi_consumer(void *arg)
         pthread_mutex_lock(&multi_mutex_count);
         ++multi_index_count;
         pthread_mutex_unlock(&multi_mutex_count);
-        //fprintf(stderr, "[%ld] consumed  %u count %d\n", syscall(SYS_gettid), index, multi_index_count);
     }
 }
 
@@ -160,9 +157,7 @@ static void multi_producers_consumers(void)
      * wait until all indexes has been consumed
      */
     while (multi_index_count < sizeof(data)/sizeof(*data));
-        //fprintf(stderr, "while %d\n", multi_index_count);
 
-    //fprintf(stderr, "done %d\n", multi_index_count);
     rb_destroy(rb);
 
     for (i = 0; i != t_num_consumers; ++i)
@@ -178,11 +173,6 @@ static void multi_producers_consumers(void)
     for (r = 0, i = 0; i < sizeof(data)/sizeof(*data); ++i)
     {
         r += (data[i] != 1);
-        if (data[i] != 1)
-        {
-            //fprintf(stderr, "fuckup i %d\n", i);
-            exit(5);
-        }
     }
 
     mt_fail(r == 0);
