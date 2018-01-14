@@ -801,7 +801,22 @@ long rb_recv
     rb->tinread++;
     pthread_mutex_unlock(&rb->lock);
 
-    count = rb_recvt(rb, buffer, count, flags);
+    if (flags & MSG_PEEK)
+    {
+        /*
+         * when called is just peeking, we can simply call function for
+         * single thread, as it will not modify no data, and will not cause
+         * deadlock
+         */
+
+        pthread_mutex_lock(&rb->lock);
+        count = rb_recvs(rb, buffer, count, flags);
+        pthread_mutex_unlock(&rb->lock);
+    }
+    else
+    {
+        count = rb_recvt(rb, buffer, count, flags);
+    }
 
     pthread_mutex_lock(&rb->lock);
     rb->tinread--;

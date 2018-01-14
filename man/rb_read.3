@@ -41,14 +41,17 @@ user calls \fBrb_read()\fR, thread will sleep until another thread calls
 Only works in multi threaded environment, on single threaded mode this is
 default.  When passed and \fIrb\fR buffer contains less \fBelements\fR than
 passed in \fIcount\fR, function will copy all bytes from \fIrb\fR into
-\fIbuffer\fR and will return immediately.
+\fIbuffer\fR and will return immediately. This means, function will never
+block, no matter what.
 
 .TP
 .B MSG_PEEK
 Reads from \fIrb\fR into \fIbuffer\fR as normal, but doesn't remove data from
- \fIrb\fR, so consecutive calls to this function will return same data (provided
-that nobody called \fBrb_recv()\fR without this flag). Flag works only when when
-threading is disabled, otherwise it is ignored.
+\fIrb\fR, so consecutive calls to this function will return same data (provided
+that nobody called \fBrb_recv()\fR without this flag). When this is called in
+threaded environment enabled, functions will act as if \fBMSG_DONTWAIT\fR flag
+was also passed. It is guaranteed that calling function with this flag, will not
+alter internal state of \fIrb\fR object.
 
 .SH RETURN VALUES
 On successfull read, function will return number of \fBelements\fR it read and

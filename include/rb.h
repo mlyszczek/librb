@@ -17,8 +17,11 @@
 #define O_NONBLOCK 00004000
 #endif
 
-#define O_NONTHREAD 0x00010000L
+#ifndef MSG_DONTWAIT
+#define MSG_DONTWAIT 0x40
+#endif
 
+#define O_NONTHREAD 0x00010000L
 struct rb;
 
 typedef long (*rb_send_f)(struct rb *, const void *, size_t , unsigned long);

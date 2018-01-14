@@ -156,7 +156,17 @@ static void multi_producers_consumers(void)
     /*
      * wait until all indexes has been consumed
      */
-    while (multi_index_count < sizeof(data)/sizeof(*data));
+    while (multi_index_count < sizeof(data)/sizeof(*data))
+    {
+        int buf[16];
+
+        /*
+         * while waiting, we randomly peek into rb, and to make sure,
+         * peeking won't make a difference
+         */
+
+        rb_recv(rb, buf, rand() % 16, MSG_PEEK);
+    }
 
     rb_destroy(rb);
 
@@ -245,7 +255,41 @@ static void multi_thread(void)
     free(send_buf);
     free(recv_buf);
 }
+
 #endif
+
+static void peeking(void)
+{
+    struct rb *rb;
+    int v[8];
+    int d[8];
+    int i;
+
+    for (i = 0; i != sizeof(v)/sizeof(*v); ++i)
+    {
+        d[i] = i;
+    }
+
+    memset(v, 0, sizeof(v));
+    mt_assert(rb = rb_new(8, sizeof(int), 0));
+
+    rb_write(rb, d, 4);
+    rb_recv(rb, v, 2, MSG_PEEK);
+    mt_fail(v[0] == 0);
+    mt_fail(v[1] == 1);
+    mt_fail(v[2] == 0);
+    mt_fail(v[3] == 0);
+    memset(v, 0, sizeof(v));
+    rb_recv(rb, v, 6, MSG_PEEK);
+    mt_fail(v[0] == 0);
+    mt_fail(v[1] == 1);
+    mt_fail(v[2] == 2);
+    mt_fail(v[3] == 3);
+    mt_fail(v[4] == 0);
+    mt_fail(v[5] == 0);
+
+    rb_destroy(rb);
+}
 
 static void single_thread(void)
 {
@@ -362,6 +406,8 @@ int main(void)
             }
         }
     }
+
+    mt_run(peeking);
 
     mt_return();
 }

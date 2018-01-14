@@ -4,7 +4,7 @@
    ========================================================================== */
 
 
-/* ==== mtest version v0.1.0 ================================================ */
+/* ==== mtest version v0.2.0 ================================================ */
 
 
 /* ==========================================================================
@@ -32,6 +32,20 @@
     int mt_test_status;                                                        \
     int mt_total_tests = 0;                                                    \
     int mt_total_failed = 0
+
+
+/* ==========================================================================
+    macro with extern declarations of variables defined by mt_defs().   This
+    macro should be called in any .c file,  that uses mt_* function and does
+    not have mt_defs() called in.
+   ========================================================================== */
+
+
+#define mt_defs_ext()                                                          \
+    extern const char *curr_test;                                              \
+    extern int mt_test_status;                                                 \
+    extern int mt_total_tests;                                                 \
+    extern int mt_total_failed;
 
 
 /* ==========================================================================
@@ -63,14 +77,15 @@
 #define mt_assert(e) do {                                                      \
     if (!(e))                                                                  \
     {                                                                          \
-        fprintf(stdout, "# assert %d: %s, %s\n", __LINE__, curr_test, #e);     \
+        fprintf(stdout, "# assert [%s:%d] %s, %s\n",                           \
+                __FILE__, __LINE__, curr_test, #e);                            \
         mt_test_status = -1;                                                   \
         return;                                                                \
     } } while (0)
 
 
 /* ==========================================================================
-    same as mt_assert, but function is not forced to return, and test can
+    same as mt_assert, but function is not forced to return,  and  test  can
     continue
    ========================================================================== */
 
@@ -78,15 +93,37 @@
 #define mt_fail(e) do {                                                        \
     if (!(e))                                                                  \
     {                                                                          \
-        fprintf(stdout, "# assert %d: %s, %s\n", __LINE__, curr_test, #e);     \
+        fprintf(stdout, "# assert [%s:%d] %s, %s\n",                           \
+                __FILE__, __LINE__, curr_test, #e);                            \
         mt_test_status = -1;                                                   \
-    } } while(0)
+    } } while (0)
 
 
 /* ==========================================================================
-    prints test plan, in format 1..<number_of_test_run>. If all tests have
-    passed, macro will return current function with code 0, else it returns
-    number of failed tests. If number of failed tests exceeds 254, then 254
+    shortcut macro to test if function exits with success (with return value
+    set to 0)
+   ========================================================================== */
+
+
+#define mt_fok(e) mt_fail(e == 0)
+
+
+/* ==========================================================================
+    shortcut macro to test if function fails as expected, with return code
+    set to -1, and expected errno errn
+   ========================================================================== */
+
+
+#define mt_ferr(e, errn) do {                                                  \
+    errno = 0;                                                                 \
+    mt_fail(e == -1);                                                          \
+    mt_fail(errno == errn);                                                    \
+    } while (0)
+
+/* ==========================================================================
+    prints test plan, in format 1..<number_of_test_run>.  If all tests  have
+    passed, macro will return current function with code 0, else it  returns
+    number of failed tests.  If number of failed tests exceeds 254, then 254
     will be returned
    ========================================================================== */
 
