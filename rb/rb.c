@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 
 #if ENABLE_THREADS
 #   include <pthread.h>
@@ -53,24 +54,27 @@
 
 struct rb
 {
-    size_t head;               /* pointer to buffer's head */
-    size_t tail;               /* pointer to buffer's tail */
-    size_t count;              /* maximum number of elements in buffer */
-    size_t object_size;        /* size of a single object in buffer */
-    unsigned long flags;       /* flags used with buffer */
-
-    unsigned char *buffer;     /* pointer to ring buffer in memory */
+    size_t           head;        /* pointer to buffer's head */
+    size_t           tail;        /* pointer to buffer's tail */
+    size_t           count;       /* maximum number of elements in buffer */
+    size_t           object_size; /* size of a single object in buffer */
+    unsigned long    flags;       /* flags used with buffer */
+    unsigned char   *buffer;      /* pointer to ring buffer in memory */
+    int              force_exit;  /* if set, library will stop all operations */
 
 #if ENABLE_THREADS
-    pthread_mutex_t lock;      /* mutex for concurrent access */
-    pthread_cond_t wait_data;  /* ca, will block if buffer is empty */
-    pthread_cond_t wait_room;  /* ca, will block if buffer is full */
+    pthread_mutex_t  lock;        /* mutex for concurrent access */
+    pthread_cond_t   wait_data;   /* ca, will block if buffer is empty */
+    pthread_cond_t   wait_room;   /* ca, will block if buffer is full */
+    pthread_cond_t   exit_cond;   /* signal cond when thread exits recv/send */
 
-    rb_send_f send;            /* function pointer with implementation */
-    rb_recv_f recv;            /* function pointer with implementation */
+    rb_send_f        send;         /* function pointer with implementation */
+    rb_recv_f        recv;         /* function pointer with implementation */
+
+    int              tinsend;      /* number of threads inside send function */
+    int              tinread;      /* number of threads inside recv function */
 #endif
 
-    int force_exit;            /* if set, library will stop all operations */
 };
 
 
@@ -261,6 +265,7 @@ static long rb_recvt
         size_t  bytes_to_read;
         /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
+
         pthread_mutex_lock(&rb->lock);
 
         while (rb_count(rb) == 0 && rb->force_exit == 0)
@@ -430,6 +435,7 @@ long rb_sendt
         size_t  bytes_to_write;
         /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
+
         pthread_mutex_lock(&rb->lock);
 
         while (rb_space(rb) == 0 && rb->force_exit == 0)
@@ -489,6 +495,128 @@ long rb_sendt
 
     return written;
 }
+
+
+/* ==========================================================================
+    This function is called only when threads are enabled.  When  rb_destroy
+    is called, it will call this function in separate detached thread.  This
+    function will cleanup all resources once it makes sure all threads doing
+    some operations on rb object are finished.   First  check  is  to  count
+    threads in read or send, and if that count is zero it proceeds  to  next
+    check.
+
+    Next check: every thread that exits  read/send  functions,  will  signal
+    conditional variable rb->exit_cond.  If  function  don't  get  any  such
+    signal withing 30 seconds, it assumes all threads exited and it is  safe
+    to free all memory.  We need to do this, as there is small  chance  that
+    some thread will enter read/send and then immediately cotext switch will
+    occur, before thread can  increment  thred  counter  leading  to  memory
+    dealocation (as thread counter is 0), and right after thread wakes  back
+    up, it will operate on unallocated memory.
+
+    When  that   condition   is   met,   function   frees   all   resources.
+
+    Bugs:
+
+    When calling rb_destroy on threaded object, and then exiting main thread
+    within 30 seconds, sanitizing tools will report memory  leak.   This  is
+    false positive, as rb_destroy_async didn't reach free()  code  yet,  and
+    while it is detached, it is impossible to check  if  function  finished.
+
+   ========================================================================== */
+
+
+static void *rb_destroy_async(void *arg)
+{
+    int         i;   /* counter for exit signal */
+    struct rb  *rb;  /* ring buffer object */
+    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+    rb = arg;
+
+    pthread_mutex_lock(&rb->lock);
+    rb->force_exit = 1;
+    pthread_mutex_unlock(&rb->lock);
+
+    /*
+     * Send cond signal, until all threads exits read/send functions.
+     */
+
+    for (;;)
+    {
+        pthread_mutex_lock(&rb->lock);
+
+        if (rb->tinread == 0)
+        {
+            pthread_mutex_unlock(&rb->lock);
+            break;
+        }
+
+        pthread_cond_signal(&rb->wait_data);
+        pthread_mutex_unlock(&rb->lock);
+    }
+
+    for (;;)
+    {
+        pthread_mutex_lock(&rb->lock);
+
+        if (rb->tinsend == 0)
+        {
+            pthread_mutex_unlock(&rb->lock);
+            break;
+        }
+
+        pthread_cond_signal(&rb->wait_room);
+        pthread_mutex_unlock(&rb->lock);
+    }
+
+    for (i = 0; i != 5;)
+    {
+        struct timespec ts;
+        /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 1;
+
+        pthread_mutex_lock(&rb->lock);
+
+        if (pthread_cond_timedwait(&rb->exit_cond, &rb->lock, &ts) == ETIMEDOUT)
+        {
+            /*
+             * we increment counter only when no exit_cond signal has been
+             * received
+             */
+
+            ++i;
+        }
+        else
+        {
+            /*
+             * signal received, set counter to 0
+             */
+
+            i = 0;
+        }
+
+        pthread_mutex_unlock(&rb->lock);
+    }
+
+    pthread_mutex_lock(&rb->lock);
+    pthread_cond_destroy(&rb->wait_data);
+    pthread_cond_destroy(&rb->wait_room);
+    pthread_cond_destroy(&rb->exit_cond);
+    memset(&rb->wait_data, 0, sizeof(rb->wait_data));
+    memset(&rb->wait_room, 0, sizeof(rb->wait_room));
+    pthread_mutex_unlock(&rb->lock);
+    pthread_mutex_destroy(&rb->lock);
+
+    memset(&rb->lock, 0, sizeof(rb->lock));
+    free(rb->buffer);
+    free(rb);
+
+    return NULL;
+}
+
 
 #endif  /* ENABLE_THREADS */
 
@@ -583,8 +711,16 @@ struct rb *rb_new
 
     rb->recv = rb_recvt;
     rb->send = rb_sendt;
+    rb->tinread = 0;
+    rb->tinsend = 0;
 
     if (pthread_mutex_init(&rb->lock, NULL))
+    {
+        e = errno;
+        goto error;
+    }
+
+    if (pthread_cond_init(&rb->exit_cond, NULL))
     {
         e = errno;
         goto error;
@@ -608,6 +744,7 @@ error:
     pthread_mutex_destroy(&rb->lock);
     pthread_cond_destroy(&rb->wait_data);
     pthread_cond_destroy(&rb->wait_room);
+    pthread_cond_destroy(&rb->exit_cond);
 
     free(rb->buffer);
     free(rb);
@@ -634,22 +771,12 @@ error:
 
 long rb_read
 (
-    struct rb*  rb,      /* rb object */
-    void*       buffer,  /* location where data from rb will be stored */
+    struct rb  *rb,      /* rb object */
+    void       *buffer,  /* location where data from rb will be stored */
     size_t      count    /* requested number of data from rb */
 )
 {
-    if (rb == NULL || buffer == NULL || rb->buffer == NULL)
-    {
-        errno = EINVAL;
-        return -1;
-    }
-
-#if ENABLE_THREADS
-    return rb->recv(rb, buffer, count, 0);
-#else
-    return rb_recvs(rb, buffer, count, 0);
-#endif
+    return rb_recv(rb, buffer, count, 0);
 }
 
 
@@ -660,26 +787,32 @@ long rb_read
 
 long rb_recv
 (
-    struct rb*     rb,      /* rb object */
-    void*          buffer,  /* location where data from rb will be stored */
+    struct rb     *rb,      /* rb object */
+    void          *buffer,  /* location where data from rb will be stored */
     size_t         count,   /* requested number of data from rb */
     unsigned long  flags    /* operation flags */
 )
 {
-    if (rb == NULL || buffer == NULL || rb->buffer == NULL)
+    if (rb == NULL || rb->force_exit || buffer == NULL || rb->buffer == NULL)
     {
         errno = EINVAL;
         return -1;
     }
 
 #if ENABLE_THREADS
-    if (flags & MSG_PEEK && (rb->flags & O_NONTHREAD) != O_NONTHREAD)
-    {
-        errno = EINVAL;
-        return -1;
-    }
 
-    return rb->recv(rb, buffer, count, flags);
+    pthread_mutex_lock(&rb->lock);
+    rb->tinread++;
+    pthread_mutex_unlock(&rb->lock);
+
+    count = rb->recv(rb, buffer, count, flags);
+
+    pthread_mutex_lock(&rb->lock);
+    rb->tinread--;
+    pthread_cond_signal(&rb->exit_cond);
+    pthread_mutex_unlock(&rb->lock);
+
+    return count;
 #else
     return rb_recvs(rb, buffer, count, flags);
 #endif
@@ -703,22 +836,12 @@ long rb_recv
 
 long rb_write
 (
-    struct rb*   rb,      /* rb object */
-    const void*  buffer,  /* data to be put into rb */
+    struct rb   *rb,      /* rb object */
+    const void  *buffer,  /* data to be put into rb */
     size_t       count    /* requested number of elements to be put into rb */
 )
 {
-    if (rb == NULL || buffer == NULL || rb->buffer == NULL)
-    {
-        errno = EINVAL;
-        return -1;
-    }
-
-#if ENABLE_THREADS
-    return rb->send(rb, buffer, count, 0);
-#else
-    return rb_sends(rb, buffer, count, 0);
-#endif
+    return rb_send(rb, buffer, count, 0);
 }
 
 
@@ -729,20 +852,31 @@ long rb_write
 
 long rb_send
 (
-    struct rb*     rb,      /* rb object */
-    const void*    buffer,  /* data to be put into rb */
+    struct rb     *rb,      /* rb object */
+    const void    *buffer,  /* data to be put into rb */
     size_t         count,   /* requested number of elements to be put into r */
     unsigned long  flags    /* operation flags */
 )
 {
-    if (rb == NULL || buffer == NULL || rb->buffer == NULL)
+    if (rb == NULL || rb->force_exit || buffer == NULL || rb->buffer == NULL)
     {
         errno = EINVAL;
         return -1;
     }
 
 #if ENABLE_THREADS
-    return rb->send(rb, buffer, count, flags);
+    pthread_mutex_lock(&rb->lock);
+    rb->tinsend++;
+    pthread_mutex_unlock(&rb->lock);
+
+    count = rb->send(rb, buffer, count, flags);
+
+    pthread_mutex_lock(&rb->lock);
+    rb->tinsend--;
+    pthread_cond_signal(&rb->exit_cond);
+    pthread_mutex_unlock(&rb->lock);
+
+    return count;
 #else
     return rb_sends(rb, buffer, count, flags);
 #endif
@@ -756,7 +890,7 @@ long rb_send
 
 int rb_clear
 (
-    struct rb*  rb,    /* rb object */
+    struct rb  *rb,    /* rb object */
     int         clear  /* if set to 1, also clears memory */
 )
 {
@@ -807,9 +941,13 @@ int rb_clear
 
 int rb_destroy
 (
-    struct rb*  rb  /* rb object */
+    struct rb *rb  /* rb object */
 )
 {
+#if ENABLE_THREADS
+    pthread_t destroy_thread;
+#endif
+
     if (rb == NULL)
     {
         errno = EINVAL;
@@ -824,29 +962,9 @@ int rb_destroy
         return 0;
     }
 
-    rb->force_exit = 1;
+    pthread_create(&destroy_thread, NULL, rb_destroy_async, rb);
+    pthread_detach(destroy_thread);
 
-    /*
-     * Signal locked threads in conditional variables to return, so callers
-     * can exit
-     */
-
-    pthread_cond_signal(&rb->wait_data);
-    pthread_cond_signal(&rb->wait_room);
-
-    /*
-     * To prevent any pending operations on buffer, we lock before freeing
-     * memory, so there is no crash on buffer destr
-     */
-
-    pthread_mutex_lock(&rb->lock);
-    free(rb->buffer);
-    free(rb);
-    pthread_mutex_unlock(&rb->lock);
-
-    pthread_mutex_destroy(&rb->lock);
-    pthread_cond_destroy(&rb->wait_data);
-    pthread_cond_destroy(&rb->wait_room);
 #else
     free(rb->buffer);
     free(rb);
@@ -891,7 +1009,7 @@ const char* rb_version
 
 size_t rb_count
 (
-    const struct rb*  rb  /* rb object */
+    const struct rb  *rb  /* rb object */
 )
 {
     return (rb->head - rb->tail) & (rb->count - 1);
@@ -905,7 +1023,7 @@ size_t rb_count
 
 size_t rb_space
 (
-    const struct rb*  rb  /* rb object */
+    const struct rb  *rb  /* rb object */
 )
 {
     return (rb->tail - (rb->head + 1)) & (rb->count - 1);
