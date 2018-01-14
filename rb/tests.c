@@ -321,40 +321,38 @@ static void single_thread(void)
 
 int main(void)
 {
-    unsigned int t_rblen_max = 1024;
-    unsigned int t_readlen_max = 1024;
-    unsigned int t_writelen_max = 1024;
-    unsigned int t_objsize_max = 1024;
+    unsigned int t_rblen_max = 128;
+    unsigned int t_readlen_max = 128;
+    unsigned int t_writelen_max = 128;
+    unsigned int t_objsize_max = 128;
 
-    unsigned int t_num_producers_max = 256;
-    unsigned int t_num_consumers_max = 256;
+    unsigned int t_num_producers_max = 8;
+    unsigned int t_num_consumers_max = 8;
 
     srand(time(NULL));
 
 #if ENABLE_THREADS
-    for (t_num_consumers = 2; t_num_consumers < t_num_consumers_max;
-         t_num_consumers += rand() % 16)
+    for (t_num_consumers = 1; t_num_consumers <= t_num_consumers_max;
+         t_num_consumers++)
     {
-        for (t_num_producers = 2; t_num_producers < t_num_producers_max;
-             t_num_producers += rand() % 16)
+        for (t_num_producers = 1; t_num_producers <= t_num_producers_max;
+             t_num_producers++)
         {
             mt_run(multi_producers_consumers);
         }
     }
 #endif
 
-    //mt_return();
-
     for (t_rblen = 2; t_rblen < t_rblen_max; t_rblen *= 2)
     {
         for (t_readlen = 2; t_readlen < t_readlen_max;
-             t_readlen += rand() % 512)
+             t_readlen += rand() % 128)
         {
             for (t_writelen = 2; t_writelen < t_writelen_max;
-                 t_writelen += rand() % 512)
+                 t_writelen += rand() % 128)
             {
                 for (t_objsize = 2; t_objsize < t_objsize_max;
-                     t_objsize += rand() % 512)
+                     t_objsize += rand() % 128)
                 {
 #if ENABLE_THREADS
                     mt_run(multi_thread);
