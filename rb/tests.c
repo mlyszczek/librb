@@ -12,9 +12,13 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <stdint.h>
 
 #include "mtest.h"
 
+#include <sys/types.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 struct tdata
 {
     struct rb *rb;
@@ -28,6 +32,14 @@ static int t_rblen;
 static int t_readlen;
 static int t_writelen;
 static int t_objsize;
+
+static int t_num_producers;
+static int t_num_consumers;
+static int data[128];
+static pthread_mutex_t multi_mutex;
+static pthread_mutex_t multi_mutex_count;
+static unsigned int multi_index;
+static unsigned int multi_index_count;
 
 mt_defs();
 
@@ -60,6 +72,131 @@ static void *producer(void *arg)
     }
 
     return data;
+}
+
+static void *multi_producer(void *arg)
+{
+    struct rb *rb = arg;
+    unsigned int index;
+
+    for (;;)
+    {
+        pthread_mutex_lock(&multi_mutex);
+        index = multi_index++;
+        pthread_mutex_unlock(&multi_mutex);
+
+        if (index >= (sizeof(data)/sizeof(*data)))
+        {
+            return NULL;
+        }
+
+        rb_write(rb, &index, 1);
+        //fprintf(stderr, "[%ld] produced %u\n", syscall(SYS_gettid), index);
+    }
+}
+
+static void *multi_consumer(void *arg)
+{
+    struct rb *rb = arg;
+    unsigned int index;
+
+    for (;;)
+    {
+        int overflow;
+
+        if (rb_read(rb, &index, 1) == -1)
+        {
+            /*
+             * force exit received
+             */
+
+            return NULL;
+        }
+
+        overflow = index >= sizeof(data)/sizeof(*data);
+
+        if (overflow)
+        {
+            //fprintf(stderr, "[%ld] overflow %u!!!!!!!!!!!!!!!!!\n", syscall(SYS_gettid), index);
+            continue;
+        }
+
+        data[index] = 1;
+        pthread_mutex_lock(&multi_mutex_count);
+        ++multi_index_count;
+        pthread_mutex_unlock(&multi_mutex_count);
+        //fprintf(stderr, "[%ld] consumed  %u count %d\n", syscall(SYS_gettid), index, multi_index_count);
+    }
+}
+
+static void multi_producers_consumers(void)
+{
+    pthread_t *cons;
+    pthread_t *prod;
+    struct rb *rb;
+    unsigned int i, r;
+
+    multi_index = 0;
+    multi_index_count = 0;
+    memset(data, 0, sizeof(data));
+    cons = malloc(t_num_consumers * sizeof(*cons));
+    prod = malloc(t_num_producers * sizeof(*prod));
+
+    rb = rb_new(8, sizeof(unsigned int), 0);
+
+    pthread_mutex_init(&multi_mutex, NULL);
+    pthread_mutex_init(&multi_mutex_count, NULL);
+    for (i = 0; i != t_num_consumers; ++i)
+    {
+        pthread_create(&cons[i], NULL, multi_consumer, rb);
+    }
+
+    for (i = 0; i != t_num_producers; ++i)
+    {
+        pthread_create(&prod[i], NULL, multi_producer, rb);
+    }
+
+    /*
+     * wait until all indexes has been consumed
+     */
+    while (multi_index_count < sizeof(data)/sizeof(*data));
+        //fprintf(stderr, "while %d\n", multi_index_count);
+
+    //fprintf(stderr, "done %d\n", multi_index_count);
+    rb_destroy(rb);
+
+    for (i = 0; i != t_num_consumers; ++i)
+    {
+        pthread_join(cons[i], NULL);
+    }
+
+    for (i = 0; i != t_num_producers; ++i)
+    {
+        pthread_join(prod[i], NULL);
+    }
+
+    for (r = 0, i = 0; i < sizeof(data)/sizeof(*data); ++i)
+    {
+        r += (data[i] != 1);
+        if (data[i] != 1)
+        {
+            //fprintf(stderr, "fuckup i %d\n", i);
+            exit(5);
+        }
+    }
+
+    mt_fail(r == 0);
+
+    if (r != 0)
+    {
+        printf("num_consumers = %d, num_producers = %d\n",
+                t_num_consumers, t_num_producers);
+    }
+
+    free(cons);
+    free(prod);
+    pthread_mutex_destroy(&multi_mutex);
+    pthread_mutex_destroy(&multi_mutex_count);
 }
 
 static void multi_thread(void)
@@ -199,8 +336,24 @@ int main(void)
     unsigned int t_writelen_max = 1024;
     unsigned int t_objsize_max = 1024;
 
+    unsigned int t_num_producers_max = 256;
+    unsigned int t_num_consumers_max = 256;
+
     srand(time(NULL));
 
+#if 0
+    for (t_num_consumers = 2; t_num_consumers < t_num_consumers_max;
+         t_num_consumers += rand() % 16)
+    {
+        for (t_num_producers = 2; t_num_producers < t_num_producers_max;
+             t_num_producers += rand() % 16)
+        {
+            mt_run(multi_producers_consumers);
+        }
+    }
+#endif
+
+    //mt_return();
 
     for (t_rblen = 2; t_rblen < t_rblen_max; t_rblen *= 2)
     {
