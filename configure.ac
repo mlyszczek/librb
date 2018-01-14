@@ -8,8 +8,6 @@ AC_CONFIG_SRCDIR([configure.ac])
 AC_REQUIRE_AUX_FILE([tap-driver.sh])
 AC_CONFIG_HEADERS([config.h])
 
-AC_CHECK_FUNCS([memcpy malloc free strcpy strtok])
-
 ###
 # --enable-threads
 #
@@ -22,10 +20,6 @@ AS_IF([test "x$enable_threads" = "xyes"],
 [
     AX_PTHREAD
     AC_DEFINE([ENABLE_THREADS], [1], [Enable thread awarness])
-    AC_CHECK_FUNCS([pthread_mutex_lock pthread_mutex_unlock pthread_cond_wait \
-        pthread_cond_signal pthread_mutex_init pthread_mutex_destroy \
-        pthread_cond_init pthread_cond_destroy],,
-            AC_MSG_ERROR(not found, needed by --enable-threads))
 ],
 # else
 [
