@@ -132,9 +132,11 @@ static void multi_producers_consumers(void)
     pthread_t *prod;
     struct rb *rb;
     unsigned int i, r;
+    int count;
 
     multi_index = 0;
     multi_index_count = 0;
+    count  = 0;
     memset(data, 0, sizeof(data));
     cons = malloc(t_num_consumers * sizeof(*cons));
     prod = malloc(t_num_producers * sizeof(*prod));
@@ -156,9 +158,13 @@ static void multi_producers_consumers(void)
     /*
      * wait until all indexes has been consumed
      */
-    while (multi_index_count < sizeof(data)/sizeof(*data))
+    while (count < sizeof(data)/sizeof(*data))
     {
         int buf[16];
+
+        pthread_mutex_lock(&multi_mutex_count);
+        count = multi_index_count;
+        pthread_mutex_unlock(&multi_mutex_count);
 
         /*
          * while waiting, we randomly peek into rb, and to make sure,
@@ -168,7 +174,7 @@ static void multi_producers_consumers(void)
         rb_recv(rb, buf, rand() % 16, MSG_PEEK);
     }
 
-    rb_destroy(rb);
+    rb_stop(rb);
 
     for (i = 0; i != t_num_consumers; ++i)
     {
@@ -179,6 +185,8 @@ static void multi_producers_consumers(void)
     {
         pthread_join(prod[i], NULL);
     }
+
+    rb_destroy(rb);
 
     for (r = 0, i = 0; i < sizeof(data)/sizeof(*data); ++i)
     {
@@ -370,8 +378,8 @@ int main(void)
     unsigned int t_writelen_max = 128;
     unsigned int t_objsize_max = 128;
 
-    unsigned int t_num_producers_max = 8;
-    unsigned int t_num_consumers_max = 8;
+    unsigned int t_num_producers_max = 68;
+    unsigned int t_num_consumers_max = 68;
 
     srand(time(NULL));
 
@@ -387,6 +395,7 @@ int main(void)
     }
 #endif
 
+    mt_return();
     for (t_rblen = 2; t_rblen < t_rblen_max; t_rblen *= 2)
     {
         for (t_readlen = 2; t_readlen < t_readlen_max;

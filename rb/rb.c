@@ -66,12 +66,9 @@ struct rb
     pthread_mutex_t  lock;        /* mutex for concurrent access */
     pthread_cond_t   wait_data;   /* ca, will block if buffer is empty */
     pthread_cond_t   wait_room;   /* ca, will block if buffer is full */
-    pthread_cond_t   exit_cond;   /* signal cond when thread exits recv/send */
-
-    int              tinsend;      /* number of threads inside send function */
-    int              tinread;      /* number of threads inside recv function */
+    pthread_t        stop_thread; /* thread to force thread to exit send/recv */
+    int              stopped_all; /* when set no threads are in send/recv */
 #endif
-
 };
 
 
@@ -495,41 +492,19 @@ long rb_sendt
 
 
 /* ==========================================================================
-    This function is called only when threads are enabled.  When  rb_destroy
-    is called, it will call this function in separate detached thread.  This
-    function will cleanup all resources once it makes sure all threads doing
-    some operations on rb object are finished.   First  check  is  to  count
-    threads in read or send, and if that count is zero it proceeds  to  next
-    check.
-
-    Next check: every thread that exits  read/send  functions,  will  signal
-    conditional variable rb->exit_cond.  If  function  don't  get  any  such
-    signal withing 30 seconds, it assumes all threads exited and it is  safe
-    to free all memory.  We need to do this, as there is small  chance  that
-    some thread will enter read/send and then immediately cotext switch will
-    occur, before thread can  increment  thred  counter  leading  to  memory
-    dealocation (as thread counter is 0), and right after thread wakes  back
-    up, it will operate on unallocated memory.
-
-    When  that   condition   is   met,   function   frees   all   resources.
-
-    Bugs:
-
-    When calling rb_destroy on threaded object, and then exiting main thread
-    within 30 seconds, sanitizing tools will report memory  leak.   This  is
-    false positive, as rb_destroy_async didn't reach free()  code  yet,  and
-    while it is detached, it is impossible to check  if  function  finished.
-
+    This function simply signals all  conditional  variables  to  force  any
+    locked thread to exit from read/send functions
    ========================================================================== */
 
 
-static void *rb_destroy_async(void *arg)
+static void *rb_stop_thread(void *arg)
 {
-    int         i;   /* counter for exit signal */
-    struct rb  *rb;  /* ring buffer object */
+    struct rb  *rb;       /* ring buffer object */
+    int         stopped;  /* copy of rb->stopped_all */
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
     rb = arg;
+    stopped = 0;
 
     pthread_mutex_lock(&rb->lock);
     rb->force_exit = 1;
@@ -539,77 +514,14 @@ static void *rb_destroy_async(void *arg)
      * Send cond signal, until all threads exits read/send functions.
      */
 
-    for (;;)
+    while (stopped != 1)
     {
         pthread_mutex_lock(&rb->lock);
-
-        if (rb->tinread == 0)
-        {
-            pthread_mutex_unlock(&rb->lock);
-            break;
-        }
-
         pthread_cond_signal(&rb->wait_data);
-        pthread_mutex_unlock(&rb->lock);
-    }
-
-    for (;;)
-    {
-        pthread_mutex_lock(&rb->lock);
-
-        if (rb->tinsend == 0)
-        {
-            pthread_mutex_unlock(&rb->lock);
-            break;
-        }
-
         pthread_cond_signal(&rb->wait_room);
+        stopped = rb->stopped_all;
         pthread_mutex_unlock(&rb->lock);
     }
-
-    for (i = 0; i != 5;)
-    {
-        struct timespec ts;
-        /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
-
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += 1;
-
-        pthread_mutex_lock(&rb->lock);
-
-        if (pthread_cond_timedwait(&rb->exit_cond, &rb->lock, &ts) == ETIMEDOUT)
-        {
-            /*
-             * we increment counter only when no exit_cond signal has been
-             * received
-             */
-
-            ++i;
-        }
-        else
-        {
-            /*
-             * signal received, set counter to 0
-             */
-
-            i = 0;
-        }
-
-        pthread_mutex_unlock(&rb->lock);
-    }
-
-    pthread_mutex_lock(&rb->lock);
-    pthread_cond_destroy(&rb->wait_data);
-    pthread_cond_destroy(&rb->wait_room);
-    pthread_cond_destroy(&rb->exit_cond);
-    memset(&rb->wait_data, 0, sizeof(rb->wait_data));
-    memset(&rb->wait_room, 0, sizeof(rb->wait_room));
-    pthread_mutex_unlock(&rb->lock);
-    pthread_mutex_destroy(&rb->lock);
-
-    memset(&rb->lock, 0, sizeof(rb->lock));
-    free(rb->buffer);
-    free(rb);
 
     return NULL;
 }
@@ -703,16 +615,8 @@ struct rb *rb_new
      * Multithreaded environment
      */
 
-    rb->tinread = 0;
-    rb->tinsend = 0;
-
+    rb->stopped_all = -1;
     if (pthread_mutex_init(&rb->lock, NULL))
-    {
-        e = errno;
-        goto error;
-    }
-
-    if (pthread_cond_init(&rb->exit_cond, NULL))
     {
         e = errno;
         goto error;
@@ -736,7 +640,6 @@ error:
     pthread_mutex_destroy(&rb->lock);
     pthread_cond_destroy(&rb->wait_data);
     pthread_cond_destroy(&rb->wait_room);
-    pthread_cond_destroy(&rb->exit_cond);
 
     free(rb->buffer);
     free(rb);
@@ -776,7 +679,7 @@ long rb_read
     Same as rb_read but also accepts flags
    ========================================================================== */
 
-
+#include <stdio.h>
 long rb_recv
 (
     struct rb     *rb,      /* rb object */
@@ -785,21 +688,26 @@ long rb_recv
     unsigned long  flags    /* operation flags */
 )
 {
-    if (rb == NULL || rb->force_exit || buffer == NULL || rb->buffer == NULL)
+    if (rb == NULL || buffer == NULL || rb->buffer == NULL)
     {
         errno = EINVAL;
         return -1;
     }
+
+    pthread_mutex_lock(&rb->lock);
+    if (rb->force_exit)
+    {
+        pthread_mutex_unlock(&rb->lock);
+        errno = ECANCELED;
+        return -1;
+    }
+    pthread_mutex_unlock(&rb->lock);
 
 #if ENABLE_THREADS
     if (rb->flags & O_NONTHREAD)
     {
         return rb_recvs(rb, buffer, count, flags);
     }
-
-    pthread_mutex_lock(&rb->lock);
-    rb->tinread++;
-    pthread_mutex_unlock(&rb->lock);
 
     if (flags & MSG_PEEK)
     {
@@ -812,18 +720,10 @@ long rb_recv
         pthread_mutex_lock(&rb->lock);
         count = rb_recvs(rb, buffer, count, flags);
         pthread_mutex_unlock(&rb->lock);
-    }
-    else
-    {
-        count = rb_recvt(rb, buffer, count, flags);
+        return count;
     }
 
-    pthread_mutex_lock(&rb->lock);
-    rb->tinread--;
-    pthread_cond_signal(&rb->exit_cond);
-    pthread_mutex_unlock(&rb->lock);
-
-    return count;
+    return rb_recvt(rb, buffer, count, flags);
 #else
     return rb_recvs(rb, buffer, count, flags);
 #endif
@@ -869,11 +769,20 @@ long rb_send
     unsigned long  flags    /* operation flags */
 )
 {
-    if (rb == NULL || rb->force_exit || buffer == NULL || rb->buffer == NULL)
+    if (rb == NULL || buffer == NULL || rb->buffer == NULL)
     {
         errno = EINVAL;
         return -1;
     }
+
+    pthread_mutex_lock(&rb->lock);
+    if (rb->force_exit)
+    {
+        pthread_mutex_unlock(&rb->lock);
+        errno = ECANCELED;
+        return -1;
+    }
+    pthread_mutex_unlock(&rb->lock);
 
 #if ENABLE_THREADS
     if (rb->flags & O_NONTHREAD)
@@ -881,18 +790,7 @@ long rb_send
         return rb_sends(rb, buffer, count, flags);
     }
 
-    pthread_mutex_lock(&rb->lock);
-    rb->tinsend++;
-    pthread_mutex_unlock(&rb->lock);
-
-    count = rb_sendt(rb, buffer, count, flags);
-
-    pthread_mutex_lock(&rb->lock);
-    rb->tinsend--;
-    pthread_cond_signal(&rb->exit_cond);
-    pthread_mutex_unlock(&rb->lock);
-
-    return count;
+    return rb_sendt(rb, buffer, count, flags);
 #else
     return rb_sends(rb, buffer, count, flags);
 #endif
@@ -943,15 +841,8 @@ int rb_clear
 
 
 /* ==========================================================================
-    Frees resources allocated by rb_new.  Also it stops any blocked  rb_read
-    or rb_write functions so they can return.
-
-    Below only applies to  library  working  in  threaded  environment  When
-    rb_read and rb_write work in  another  threads  and  you  want  to  join
-    them after stopping rb, you should call  this  function  before  joining
-    threads.   If  you  do  it  otherwise,  threads  calling   rb_write   or
-    rb_read can be in locked  state,  waiting  for  resources,  and  threads
-    might never  return  to  call  this  function.   You  have  been  warned
+    Frees resources allocated by rb_new. Due to pthread nature this function
+    should be called *only* when no other threads are working on rb object.
    ========================================================================== */
 
 
@@ -960,10 +851,6 @@ int rb_destroy
     struct rb *rb  /* rb object */
 )
 {
-#if ENABLE_THREADS
-    pthread_t destroy_thread;
-#endif
-
     if (rb == NULL)
     {
         errno = EINVAL;
@@ -978,15 +865,63 @@ int rb_destroy
         return 0;
     }
 
-    pthread_create(&destroy_thread, NULL, rb_destroy_async, rb);
-    pthread_detach(destroy_thread);
+    /*
+     * check if user called rb_stop, if not (rb->stopped will be -1), we trust
+     * caller made sure all threads are stopped before calling destroy.
+     */
 
-#else
-    free(rb->buffer);
-    free(rb);
+    pthread_mutex_lock(&rb->lock);
+    if (rb->stopped_all == 0)
+    {
+        rb->stopped_all = 1;
+        pthread_mutex_unlock(&rb->lock);
+        pthread_join(rb->stop_thread, NULL);
+    }
+    else
+    {
+        pthread_mutex_unlock(&rb->lock);
+    }
+
+    pthread_cond_destroy(&rb->wait_data);
+    pthread_cond_destroy(&rb->wait_room);
+    pthread_mutex_destroy(&rb->lock);
 #endif
 
+    free(rb->buffer);
+    free(rb);
     return 0;
+}
+
+
+/* ==========================================================================
+    Simply starts rb_stop_thread  that will force all threads to exit any
+    rb_* public functions.
+   ========================================================================== */
+
+
+int rb_stop
+(
+    struct rb  *rb  /* rb object */
+)
+{
+#if ENABLE_THREADS
+    if (rb == NULL || rb->flags & O_NONTHREAD)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
+    rb->stopped_all = 0;
+    if (pthread_create(&rb->stop_thread, NULL, rb_stop_thread, rb) != 0)
+    {
+        return -1;
+    }
+
+    return 0;
+#else
+    errno = ENOSYS;
+    return -1;
+#endif
 }
 
 

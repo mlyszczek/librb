@@ -2,7 +2,7 @@ About
 =====
 
 This is library that provides fast, easy to use ring buffer. It's interface is
-very similar to read/write interface from POSIX. It also provices optional
+very similar to read/write interface from POSIX. It also provides optional
 thread awarness and thread safety for concurrent access. If used without threads
 there are 0 (zero) syscalls, everything is done in user's process without kernel
 interfering and steeling precious cpu cycles. Altough librb provides
@@ -20,6 +20,7 @@ Additional functions are:
   * rb_clear - removes all elements from the buffer
   * rb_count - returns number of elements in the buffer
   * rb_space - returns number of free space for number of elements
+  * rb_stop - forces all threads to exit *rb_write* and *rb_read* functions
 
 Dependencies
 ============
@@ -27,7 +28,7 @@ Dependencies
 Library is C89 complaint and will work under any POSIX environment that
 implements pthreads and libc. If target system doesn't have posix, no worries.
 in such case the only requirenment is C89 compiler and libc (no threads then
-though). This is automatically detected.
+though. To build without threads, add *--disable-threads* to configure script.
 
 License
 =======
@@ -39,14 +40,22 @@ Compiling and installing
 
 Project uses standard automake so to build you need to
 
-autoreconf -i
-./configure
-make
-make install
+~~~
+$ ./autogen.sh
+$ ./configure
+$ make
+# make install
+~~~
+
+**./autogen.sh** must be called only when **./configure** is not available -
+like when cloning from git. If you downloaded **tar.gz** tarbal, this can be
+ommited.
 
 for tests run:
 
-make check
+~~~
+$ make check
+~~~
 
 Functions description
 =====================

@@ -56,6 +56,13 @@ This error will be set, when \fIrb\fR is operating in non blocking mode, and
 \fIcount\fR. Note, this is not an actual error, and will not happen when
 function returns -1.
 
+.TP
+.B ECANCELED
+\fBrb_stop\fR(3) was called, and operation was cancelled, because \fIrb\fR
+object is abou to be destroyed. You should not access \fIrb\fR object after
+you receive this error. Otherwise you will probably get deadlock or application
+will crash. Returned only if threads are enabled.
+
 .SH SEE ALSO
 .BR rb_overview (7),
 .BR rb_new (3),

@@ -16,15 +16,15 @@
 
 .SH DESCRIPTION
 \fBrb_read()\fR copies at most \fIcount\fB \fBelements\fR from ring buffer
-\fIrb\fR to memory pointed by \fIbuffer\fB
+\fIrb\fR to memory pointed by \fIbuffer\fR
 
-Note  \fBelements\fR we don't mean \fBbytes\fR. For example if
+Note that by \fBelements\fR we don't mean \fBbytes\fR. For example if
 \fBobject_size\fR is 4 bytes, and \fIcount\fR is 3, this will copy 4 * 3 = 12
 bytes into \fIbuffer\fR
 
 Functions can and will try to commit as many bytes as possible in a single
-burst, so it is better to call these function once with big *count* number than
-call it in a loop with count == 1.
+burst, so it is better to call these function once with big \fIcount\fR number
+than call it in a loop with \fIcount\fR == 1.
 
 By default (if buffer wasn't created with O_NONBLOCK flag), every read and will
 block until it reads all element passed to the function. When read function
@@ -72,9 +72,16 @@ Any of the passed pointers is NULL
 
 .TP
 .B EAGAIN
-This error will be set, when \fIrb\fR is operating in non blocking mode, and \fIrb\fR
-buffer contains less \fBelements\fR than requested by \fIcount\fR. Note, this is
-not an actual error, and will not happen when function returns -1.
+This error will be set, when \fIrb\fR is operating in non blocking mode, and
+\fIrb\fR buffer contains less \fBelements\fR than requested by \fIcount\fR.
+Note, this is not an actual error, and will not happen when function returns -1.
+
+.TP
+.B ECANCELED
+\fBrb_stop\fR(3) was called, and operation was cancelled, because \fIrb\fR
+object is abou to be destroyed. You should not access \fIrb\fR object after
+you receive this error. Otherwise you will probably get deadlock or application
+will crash. Returned only if threads are enabled.
 
 .SH SEE ALSO
 .BR rb_overview (7),
