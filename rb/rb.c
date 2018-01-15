@@ -60,7 +60,6 @@ struct rb
     size_t           object_size; /* size of a single object in buffer */
     unsigned long    flags;       /* flags used with buffer */
     unsigned char   *buffer;      /* pointer to ring buffer in memory */
-    int              force_exit;  /* if set, library will stop all operations */
 
 #if ENABLE_THREADS
     pthread_mutex_t  lock;        /* mutex for concurrent access */
@@ -68,6 +67,7 @@ struct rb
     pthread_cond_t   wait_room;   /* ca, will block if buffer is full */
     pthread_t        stop_thread; /* thread to force thread to exit send/recv */
     int              stopped_all; /* when set no threads are in send/recv */
+    int              force_exit;  /* if set, library will stop all operations */
 #endif
 };
 
@@ -590,7 +590,6 @@ struct rb *rb_new
     rb->tail = 0;
     rb->count = count;
     rb->object_size = object_size;
-    rb->force_exit = 0;
     rb->flags = flags;
 
 #if ENABLE_THREADS == 0
@@ -616,6 +615,7 @@ struct rb *rb_new
      */
 
     rb->stopped_all = -1;
+    rb->force_exit = 0;
     if (pthread_mutex_init(&rb->lock, NULL))
     {
         e = errno;
@@ -694,6 +694,12 @@ long rb_recv
         return -1;
     }
 
+#if ENABLE_THREADS
+    if (rb->flags & O_NONTHREAD)
+    {
+        return rb_recvs(rb, buffer, count, flags);
+    }
+
     pthread_mutex_lock(&rb->lock);
     if (rb->force_exit)
     {
@@ -702,12 +708,6 @@ long rb_recv
         return -1;
     }
     pthread_mutex_unlock(&rb->lock);
-
-#if ENABLE_THREADS
-    if (rb->flags & O_NONTHREAD)
-    {
-        return rb_recvs(rb, buffer, count, flags);
-    }
 
     if (flags & MSG_PEEK)
     {
@@ -775,6 +775,12 @@ long rb_send
         return -1;
     }
 
+#if ENABLE_THREADS
+    if (rb->flags & O_NONTHREAD)
+    {
+        return rb_sends(rb, buffer, count, flags);
+    }
+
     pthread_mutex_lock(&rb->lock);
     if (rb->force_exit)
     {
@@ -783,12 +789,6 @@ long rb_send
         return -1;
     }
     pthread_mutex_unlock(&rb->lock);
-
-#if ENABLE_THREADS
-    if (rb->flags & O_NONTHREAD)
-    {
-        return rb_sends(rb, buffer, count, flags);
-    }
 
     return rb_sendt(rb, buffer, count, flags);
 #else

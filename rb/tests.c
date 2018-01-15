@@ -378,8 +378,8 @@ int main(void)
     unsigned int t_writelen_max = 128;
     unsigned int t_objsize_max = 128;
 
-    unsigned int t_num_producers_max = 68;
-    unsigned int t_num_consumers_max = 68;
+    unsigned int t_num_producers_max = 8;
+    unsigned int t_num_consumers_max = 8;
 
     srand(time(NULL));
 
@@ -395,7 +395,6 @@ int main(void)
     }
 #endif
 
-    mt_return();
     for (t_rblen = 2; t_rblen < t_rblen_max; t_rblen *= 2)
     {
         for (t_readlen = 2; t_readlen < t_readlen_max;
