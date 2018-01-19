@@ -31,6 +31,7 @@
 #include "rb.h"
 
 
+#include <stdio.h>
 /* ==========================================================================
                   _                __           __
     ____   _____ (_)_   __ ____ _ / /_ ___     / /_ __  __ ____   ___   _____
@@ -264,23 +265,42 @@ static long rb_recvt
 
         while (rb_count(rb) == 0 && rb->force_exit == 0)
         {
+            struct timespec ts;  /* timeout for pthread_cond_timedwait */
+            /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+            /*
+             * buffer is empty and no data can be  read,  we  wait  for  any
+             * data or exit if 'rb' is nonblocking
+             */
+
             if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
             {
-                /*
-                 * Socket is nonblocking or caller wants just this call to be
-                 * nonblocking, either way, return
-                 */
-
                 pthread_mutex_unlock(&rb->lock);
                 errno = EAGAIN;
                 return read;
             }
 
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += 5;
+
             /*
-             * Buffer is empty, socket is blocking, wait for data
+             * on some very rare ocassions it is possible that signal  won't
+             * reach out rb->wait_data conditional variable.  This shouldn't
+             * happend, but yet it does.  Such behaviour may cause deadlock.
+             * To prevent deadlock we wake this thread every now and then to
+             * make sure program is running.  When everything works ok, this
+             * has marginal impact on performance and when things go  south,
+             * instead of deadlocking  we  stall  execution  for  maximum  5
+             * seconds.
+             *
+             * TODO: look into this and try to make proper fix
              */
 
-            pthread_cond_wait(&rb->wait_data, &rb->lock);
+            if (pthread_cond_timedwait(&rb->wait_data, &rb->lock, &ts))
+            {
+                fprintf(stderr, "recvt timewait\n");
+            }
         }
 
         if (rb->force_exit)
@@ -405,7 +425,7 @@ static long rb_sends
 
 
 #if ENABLE_THREADS
-
+#include <stdio.h>
 
 long rb_sendt
 (
@@ -434,6 +454,15 @@ long rb_sendt
 
         while (rb_space(rb) == 0 && rb->force_exit == 0)
         {
+            struct timespec ts;  /* timeout for pthread_cond_timedwait */
+            /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+            /*
+             * buffer is full and no new data can be  pushed,  we  wait  for
+             * room or exit if 'rb' is nonblocking
+             */
+
             if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
             {
                 pthread_mutex_unlock(&rb->lock);
@@ -441,11 +470,26 @@ long rb_sendt
                 return written;
             }
 
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += 5;
+
             /*
-             * Buffer is full, wait for someone to read data and free space
+             * on some very rare ocassions it is possible that signal  won't
+             * reach out rb->wait_room conditional variable.  This shouldn't
+             * happend, but yet it does.  Such behaviour may cause deadlock.
+             * To prevent deadlock we wake this thread every now and then to
+             * make sure program is running.  When everything works ok, this
+             * has marginal impact on performance and when things go  south,
+             * instead of deadlocking  we  stall  execution  for  maximum  5
+             * seconds.
+             *
+             * TODO: look into this and try to make proper fix
              */
 
-            pthread_cond_wait(&rb->wait_room, &rb->lock);
+            if (pthread_cond_timedwait(&rb->wait_room, &rb->lock, &ts))
+            {
+                fprintf(stderr, "recvt timewait\n");
+            }
         }
 
         if (rb->force_exit == 1)
@@ -679,7 +723,6 @@ long rb_read
     Same as rb_read but also accepts flags
    ========================================================================== */
 
-#include <stdio.h>
 long rb_recv
 (
     struct rb     *rb,      /* rb object */
