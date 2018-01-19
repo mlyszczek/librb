@@ -29,3 +29,5 @@ tests
 tests.log
 tests.trs
 tap-driver.sh
+www/manuals
+www/out
