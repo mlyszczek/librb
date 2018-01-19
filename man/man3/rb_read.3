@@ -1,6 +1,7 @@
 .TH "rb_read" "3" "24 July 2017 (v2.0.0)" "bofc.pl"
 
 .SH NAME
+
 \fBrb_read\fR, \fBrb_recv\fR - functions to retrieve data from ring buffer
 
 .SH SYNOPSIS
@@ -15,7 +16,8 @@
 .BI "unsigned long " flags ");"
 
 .SH DESCRIPTION
-\fBrb_read()\fR copies at most \fIcount\fB \fBelements\fR from ring buffer
+
+\fBrb_read\fR(3) copies at most \fIcount\fB \fBelements\fR from ring buffer
 \fIrb\fR to memory pointed by \fIbuffer\fR
 
 Note that by \fBelements\fR we don't mean \fBbytes\fR. For example if
@@ -30,10 +32,10 @@ By default (if buffer wasn't created with O_NONBLOCK flag), every read and will
 block until it reads all element passed to the function. When read function
 blocks, caller thread is put to sleep, so it doesn't use any processor time,
 until it is waked by opossite write call, ie. when ring buffer is empty, and
-user calls \fBrb_read()\fR, thread will sleep until another thread calls
-\fBrb_write()\fR and puts some data for read operation.
+user calls \fBrb_read\fR(3), thread will sleep until another thread calls
+\fBrb_write\fR(3) and puts some data for read operation.
 
-\fBrb_recv()\fR works the same but it also accepts \fIflags\fR. Possible
+\fBrb_recv\fR(3) works the same but it also accepts \fIflags\fR. Possible
 \fIflags\fR are:
 
 .TP
@@ -48,12 +50,13 @@ block, no matter what.
 .B MSG_PEEK
 Reads from \fIrb\fR into \fIbuffer\fR as normal, but doesn't remove data from
 \fIrb\fR, so consecutive calls to this function will return same data (provided
-that nobody called \fBrb_recv()\fR without this flag). When this is called in
+that nobody called \fBrb_recv\fR(3) without this flag). When this is called in
 threaded environment enabled, functions will act as if \fBMSG_DONTWAIT\fR flag
 was also passed. It is guaranteed that calling function with this flag, will not
 alter internal state of \fIrb\fR object.
 
 .SH RETURN VALUES
+
 On successfull read, function will return number of \fBelements\fR it read and
 stored in \fIbuffer\fR. Returned value can be less than \fIcount\fR if \fIrb\fR
 doesn't contain enough data and function operates in non blocking mode. In such
@@ -84,9 +87,11 @@ you receive this error. Otherwise you will probably get deadlock or application
 will crash. Returned only if threads are enabled.
 
 .SH SEE ALSO
+
 .BR rb_overview (7),
 .BR rb_new (3),
 .BR rb_destroy (3),
+.BR rb_stop (3),
 .BR rb_read (3),
 .BR rb_recv (3),
 .BR rb_write (3),

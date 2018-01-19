@@ -1,6 +1,7 @@
 .TH "rb_destroy" "3" "24 July 2017 (v2.0.0)" "bofc.pl"
 
 .SH NAME
+
 \fBrb_destroy\fR \fBrb_stop\fR - functions to stop any locked threads in rb
 functions and free resources allocated by \fBrb_new()\fR
 
@@ -12,6 +13,7 @@ functions and free resources allocated by \fBrb_new()\fR
 .BI "int rb_destroy(struct rb *" rb ");"
 
 .SH DESCRIPTION
+
 Function \fBrb_stop\fR(3) spawns thread (and then exits) that forces any locked
 thread to exit from \fBrb_read\fR(3)or \fBrb_send\fR(3). Also after this
 function is called, any call to \fBrb_read\fR(3) or \fBrb_send\fR(3) will result
@@ -20,10 +22,11 @@ in error.
 Function \fBrb_destroy\fR(3) simply frees all resources allocated by
 \fBrb_new\fR(3). If \fBrb_stop\fR(3) was called before, function will stop
 spawned thread. After calling this, \fIrb\fR that was freed, cannot be used
-anymore without calling \fBrb_new()\fR first. Passing same \fIrb\fR object
+anymore without calling \fBrb_new\fR(3) first. Passing same \fIrb\fR object
 twice, will result in segmentation fault.
 
 .SH NOTES
+
 Due to nature of \fBpthread\fR, you must be sure that no threads are calling
 any functions rom \fBlibrb\fR before calling \fBrb_destroy\fR(3). Failing to do
 so, will lead to deadlocks or crashes sooner or later.
@@ -79,6 +82,7 @@ void foo(void)
 }
 
 .SH RETURN VALUES
+
 Function will return 0 when all resources were freed, otherwise -1 is returned.
 If function returns -1 \fIrb\fR object is not modified.
 
@@ -89,6 +93,7 @@ If function returns -1 \fIrb\fR object is not modified.
 Passed \fIrb\fR is invalid (null)
 
 .SH SEE ALSO
+
 .BR rb_overview (7),
 .BR rb_new (3),
 .BR rb_read (3),

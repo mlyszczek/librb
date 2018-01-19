@@ -1,9 +1,11 @@
 .TH "rb_overview" "7" "15 Jan 2018 (v2.1.0)" "bofc.pl"
 
 .SH NAME
+
 \fBrb_overview\fR - quick overview of librb ring buffer library
 
 .SH SYNOPSIS
+
 \fBlibrb\fR - library that provides fast, easy to use ring buffer implementation.
 Its interface is very similar to read/write functions from \fBPOSIX\fR. Basic
 usage can be done with only 4 functions:
@@ -42,6 +44,7 @@ Additinal functions are provided for better control over buffer
 .BI "const char *rb_version(char *" major ", char *" minor ", char *" patch ");"
 
 .SH DESCRIPTION
+
 \fBlibrb\fR is thread safe and thread aware.   If  there  are  no  resources
 available while reading or writting, caller thread gets locked  and  doesn't use
 any resources  until  data  is  available.   Ring  buffer  can  also  be
@@ -62,6 +65,7 @@ sophisticated types like structures  with  any  number  of  parameters  when
 object size is set to sizeof(struct s).
 
 .SH EXAMPLE
+
 Please note, that example is missing error handling for simplicity.
 
 .nf
@@ -105,9 +109,11 @@ int main(void)
 }
 
 .SH SEE ALSOQ
+
 .BR rb_overview (7),
 .BR rb_new (3),
 .BR rb_destroy (3),
+.BR rb_stop (3),
 .BR rb_read (3),
 .BR rb_recv (3),
 .BR rb_write (3),

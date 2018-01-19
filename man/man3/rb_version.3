@@ -1,9 +1,11 @@
 .TH "rb_version" "3" "24 July 2017 (v2.0.0)" "bofc.pl"
 
 .SH NAME
+
 \fBrb_version\fR - queries for library version
 
 .SH SYNOPSIS
+
 .sh
 .BI "#include <librb.h>"
 
@@ -11,6 +13,7 @@
 .BI "const char *rb_version(char *" major ", char *" minor ", char *" patch ");"
 
 .SH DESCRIPTION
+
 Function returns library version. Each of input parameters should be at least 4
 bytes long.  If any of the input parameters is \fBNULL\fR function won't store
 anything and will just return version as string. \fBlibrb\fR uses semantic
@@ -33,13 +36,16 @@ API
 
 
 .SH RETURN VALUES
+
 Function returns pointer to statically allocated string with full version, like
 "1.2.6"
 
 .SH SEE ALSOQ
+
 .BR rb_overview (7),
 .BR rb_new (3),
 .BR rb_destroy (3),
+.BR rb_stop (3),
 .BR rb_read (3),
 .BR rb_recv (3),
 .BR rb_write (3),

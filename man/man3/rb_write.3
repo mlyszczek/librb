@@ -1,6 +1,7 @@
 .TH "rb_write" "3" "24 July 2017 (v2.0.0)" "bofc.pl"
 
 .SH NAME
+
 \fBrb_write\fR, \fBrb_send\fR - functions to put data on ring buffer
 
 .SH SYNOPSIS
@@ -16,7 +17,8 @@
 .BI "size_t " count ", unsigned long " flags ");"
 
 .SH DESCRIPTION
-\fBrb_write()\fR copies at most \fIcount\fB \fBelements\fR from \fIbuffer\fR
+
+\fBrb_write\fR(3) copies at most \fIcount\fB \fBelements\fR from \fIbuffer\fR
 to \fIrb\fR buffer.
 
 Note by \fBelements\fR we don't mean \fBbytes\fR. For example if
@@ -24,9 +26,9 @@ Note by \fBelements\fR we don't mean \fBbytes\fR. For example if
 bytes from \fIbuffer\fR
 
 Write functions works the same way in multi-threaded mode as read ones. Please
-see \fBrb_read\fR (3) description for more details.
+see \fBrb_read\fR(3) description for more details.
 
-\fBrb_send()\fR works the same way as \fBrb_write()\fR but also accepts
+\fBrb_send\fR(3) works the same way as \fBrb_write\fR(3) but also accepts
 following \fIflags\fR
 
 .TP
@@ -34,9 +36,10 @@ following \fIflags\fR
 Only works in multi threaded environment, on single threaded mode this is
 default.  When passed and \fIrb\fR buffer contains less free \fBelements\fR than
 passed in \fIcount\fR, function will copy all \fBelements\fR from \fIbuffer\fR
-into \fBrb\fR and will return immediately.
+into \fIrb\fR and will return immediately.
 
 .SH RETURN VALUES
+
 On successfull write, function will return number of \fBelements\fR it stored in
 \fIrb\fR. Returned value can be less than \fIcount\fR if \fIrb\fR doesn't
 contain enough free space and function operates in non blocking mode. In such
@@ -64,9 +67,11 @@ you receive this error. Otherwise you will probably get deadlock or application
 will crash. Returned only if threads are enabled.
 
 .SH SEE ALSO
+
 .BR rb_overview (7),
 .BR rb_new (3),
 .BR rb_destroy (3),
+.BR rb_stop (3),
 .BR rb_read (3),
 .BR rb_recv (3),
 .BR rb_clear (3),
