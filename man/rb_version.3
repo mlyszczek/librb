@@ -11,8 +11,10 @@
 .BI "const char *rb_version(char *" major ", char *" minor ", char *" patch ");"
 
 .SH DESCRIPTION
-Function returns library version. Each of input parameters should be at least
-4 bytes long. \fBlibrb\fR uses semantic versioning:
+Function returns library version. Each of input parameters should be at least 4
+bytes long.  If any of the input parameters is \fBNULL\fR function won't store
+anything and will just return version as string. \fBlibrb\fR uses semantic
+versioning:
 
 .TP
 .I major
@@ -28,6 +30,7 @@ features) to either ABI or API.
 .I patch
 This is incremented when patch is introduced without changing neither ABI nor
 API
+
 
 .SH RETURN VALUES
 Function returns pointer to statically allocated string with full version, like

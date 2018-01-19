@@ -1,4 +1,4 @@
-.TH "rb_overview" "7" "24 July 2017 (v2.0.0)" "bofc.pl"
+.TH "rb_overview" "7" "15 Jan 2018 (v2.1.0)" "bofc.pl"
 
 .SH NAME
 \fBrb_overview\fR - quick overview of librb ring buffer library
@@ -37,6 +37,8 @@ Additinal functions are provided for better control over buffer
 .br
 .BI "size_t rb_space(struct rb *" rb ");"
 .br
+.BI "int rb_stop(struct rb *" rb ");"
+.br
 .BI "const char *rb_version(char *" major ", char *" minor ", char *" patch ");"
 
 .SH DESCRIPTION
@@ -46,7 +48,7 @@ any resources  until  data  is  available.   Ring  buffer  can  also  be
 configured to work in non-blocking mode, so calls from read and  write  will
 return immediately when there are not enough resources.  malloc and free are
 called only in new and destory functions.  Thread awarness can  be  disabled via
-\fBO_NONTHREAD\fR flags passed to \fBrb_new()\fR. In such case all calls to rb
+\fBO_NONTHREAD\fR flags passed to \fBrb_new\fR(3). In such case all calls to rb
 function will be non blocking.  Library can also be  compiled  without thread
 support at all, then it can be used even in very constrained platforms.
 
@@ -56,8 +58,8 @@ Altough user is limited to number of elements that can be stored  in buffer,
 single element can be any size.  Thanks to that, ring buffer can  be used with
 raw data (like from 8bit adc when object size is 1 byte) or bigger raw data
 (like from 12bit adc when object size is  2  bytes)  or  even  more
-sophisticated types like structures  with  any  number  of  paraneters  when
-object size is set to sizeof(struct).
+sophisticated types like structures  with  any  number  of  parameters  when
+object size is set to sizeof(struct s).
 
 .SH EXAMPLE
 Please note, that example is missing error handling for simplicity.
@@ -93,7 +95,7 @@ int main(void)
         if (bytes_read == 0) /* nothing left to read */
             break;
 
-        printf("%s\n", buf);
+        printf("%s\\n", buf);
     }
 
     /* clean up */
