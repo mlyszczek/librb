@@ -70,7 +70,8 @@ $ make check
 Functions description
 =====================
 
-For function description please check man pages.
+For detailed functions description please check
+[man pages](http://librb.kurwinet.pl/manuals/man3.html)
 
 Contact
 =======
@@ -81,4 +82,4 @@ Thanks to
 =========
 
 Myself for developing very simple unit test framework
-(https://github.com/mlyszczek/mtest) this code uses
+[mtest](http://mtest.kurwinet.pl) this code uses
