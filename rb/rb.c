@@ -285,6 +285,8 @@ static long rb_recvt
             ts.tv_sec += 5;
 
             /*
+             * This happens only after calling rb_stop()
+             *
              * on some very rare ocassions it is possible that signal  won't
              * reach out rb->wait_data conditional variable.  This shouldn't
              * happend, but yet it does.  Such behaviour may cause deadlock.
@@ -474,6 +476,8 @@ long rb_sendt
             ts.tv_sec += 5;
 
             /*
+             * This happens only after calling rb_stop()
+             *
              * on some very rare ocassions it is possible that signal  won't
              * reach out rb->wait_room conditional variable.  This shouldn't
              * happend, but yet it does.  Such behaviour may cause deadlock.
