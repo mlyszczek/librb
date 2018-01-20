@@ -15,6 +15,8 @@ config.sub
 configure
 depcomp
 install-sh
+librb-*.tar.gz
+librb-*.tar.gz.sha1
 libtool
 ltmain.sh
 m4/
@@ -22,12 +24,13 @@ missing
 rb/librb.la
 rb/librb_la-rb.lo
 stamp-h1
+tap-driver.sh
 test-driver
 test-suite.log
 tests
 tests
 tests.log
 tests.trs
-tap-driver.sh
+www/downloads.html
 www/manuals
 www/out
