@@ -1,6 +1,6 @@
 EXTRA_DIST = custom.css footer.in header.in index.in index.md
 
-all:
+www:
 	kursg -o out
 	chmod a+rX out -R
 

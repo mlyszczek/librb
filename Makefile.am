@@ -1,11 +1,11 @@
 ACLOCAL_AMFLAGS=-I m4
 
-SUBDIRS = include rb man
+SUBDIRS = include rb man www
 EXTRA_DIST = tap-driver.sh
 
 www:
 	./gen-download-page.sh
 	./man2html.sh
-	make -C www
+	make www -C www
 
 .PHONY: www
