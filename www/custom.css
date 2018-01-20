@@ -20,3 +20,8 @@ div.codehilite:before
 {
     content: "// code";
 }
+
+img[alt=test-result-svg]
+{
+    float: right;
+}
