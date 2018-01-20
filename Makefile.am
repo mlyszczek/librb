@@ -4,6 +4,7 @@ SUBDIRS = include rb man
 EXTRA_DIST = tap-driver.sh
 
 www:
+	./gen-download-page.sh
 	./man2html.sh
 	make -C www
 
