@@ -32,7 +32,7 @@ Additional functions are:
   * [rb_space](http://librb.kurwinet.pl/manuals/man3/rb_space.3.html) -
     returns number of free space for number of elements
   * [rb_stop](http://librb.kurwinet.pl/manuals/man3/rb_stop.3.html) -
-    forces all threads to exit *rb_write* and *rb_read* functions
+    forces all threads to exit **rb_write** and **rb_read** functions
 
 Dependencies
 ============
@@ -40,7 +40,7 @@ Dependencies
 Library is C89 complaint and will work under any POSIX environment that
 implements pthreads and libc. If target system doesn't have posix, no worries.
 in such case the only requirenment is C89 compiler and libc (no threads then
-though. To build without threads, add *--disable-threads* to configure script.
+though. To build without threads, add **--disable-threads** to configure script.
 
 License
 =======
@@ -80,8 +80,9 @@ Contact
 
 Michał Łyszczek <michal.lyszczek@bofc.pl>
 
-Thanks to
-=========
+See also
+========
 
-Myself for developing very simple unit test framework
-[mtest](http://mtest.kurwinet.pl) this code uses
+* [mtest](http://mtest.kurwinet.pl) unit test framework **librb** uses
+* [git repository](http://git.kurwinet.pl/librb) to browde code online
+* [continous integration](http://ci.librb.kurwinet.pl) for project
