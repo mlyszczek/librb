@@ -29,9 +29,9 @@
 #endif
 
 #include "rb.h"
+#include "valid.h"
 
 
-#include <stdio.h>
 /* ==========================================================================
                   _                __           __
     ____   _____ (_)_   __ ____ _ / /_ ___     / /_ __  __ ____   ___   _____
@@ -299,10 +299,7 @@ static long rb_recvt
              * TODO: look into this and try to make proper fix
              */
 
-            if (pthread_cond_timedwait(&rb->wait_data, &rb->lock, &ts))
-            {
-                fprintf(stderr, "recvt timewait\n");
-            }
+            pthread_cond_timedwait(&rb->wait_data, &rb->lock, &ts);
         }
 
         if (rb->force_exit)
@@ -490,10 +487,7 @@ long rb_sendt
              * TODO: look into this and try to make proper fix
              */
 
-            if (pthread_cond_timedwait(&rb->wait_room, &rb->lock, &ts))
-            {
-                fprintf(stderr, "recvt timewait\n");
-            }
+            pthread_cond_timedwait(&rb->wait_room, &rb->lock, &ts);
         }
 
         if (rb->force_exit == 1)
