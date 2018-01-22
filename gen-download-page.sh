@@ -6,7 +6,7 @@ remote="http://distfiles.kurwinet.pl/${project}"
 
 # extract links to files
 links="$(curl "${remote}/" 2>/dev/null \
-    | grep "${project}-[0-9]*\.[0-9]*\.[0-9]*\.")"
+    | grep "${project}-[0-9]*\.[0-9]*\.[0-9]*\." | sort -r)"
 
 exec 1<&-
 exec 1<>"${out}"
