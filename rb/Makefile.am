@@ -1,5 +1,5 @@
 lib_LTLIBRARIES = librb.la
-librb_la_SOURCES = rb.c
+librb_la_SOURCES = rb.c valid.h
 librb_la_LDFLAGS = -version-info 3:1:1
 librb_la_CFLAGS = -I$(top_srcdir)/include
 
