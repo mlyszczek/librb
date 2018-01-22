@@ -25,3 +25,35 @@ img[alt=test-result-svg]
 {
     float: right;
 }
+
+p.info
+{
+    margin-top: 2ch;
+    margin-bottom: 2ch;
+    margin-left: 0ch;
+    margin-right: 0ch;
+    float: left;
+}
+
+p.left
+{
+    text-align: left;
+    width: 33%
+}
+
+p.center
+{
+    text-align: center;
+    width: 33%
+}
+
+p.right
+{
+    text-align: right;
+    width: 34%
+}
+
+ul.man-toc
+{
+    clear: both;
+}

@@ -21,24 +21,27 @@ do
         # remove leftover <body> and <h1>man</h1> tags from beginning
         tail -n+3 "${ftmp}" > tmp; mv tmp "${ftmp}"
 
-        # construct own h1 tag
+        # construct top page heading with page info, remove superflous info
         name="$(basename ${m})"
         name="${name%.*}"
-        sed -i "1s/^/<H1>${name}(${n})<\/H1>\n<P> /" "${ftmp}"
+        version_info="$(head -n1 ${ftmp} | cut -f3 -d: | cut -f1 -d\<)"
+        tail -n+2 "${ftmp}" > tmp; mv tmp "${ftmp}"
+        sed -i "1s/^/<p class=\"info left\">${name}(${n})<\/p><p class=\"info center\">kurwinet manual pages<\/p><p class=\"info right\">${name}(${n})<\/p>\n<br><P> /" "${ftmp}"
 
         # remove uneeded links to non-existing index
         sed -i 's/<A HREF="\.\.\/index.html">Return to Main Contents<\/A><HR>//' "${ftmp}"
         sed -i 's/<A HREF="#index">Index<\/A>//g' "${ftmp}"
 
         # extract table of content and put it in the beginning of file
-        ## cache first two lines (h1 and info) and remove them from file
+        ## cache first two lines (page info) and remove them from file
         tmp="$(head -n2 ${ftmp})"
         tail -n+3 "${ftmp}" > tmp; mv tmp "${ftmp}"
 
         ## get table of content from file
         toc="$(sed -n '/<DL>/,/<\/DL>/p' "${ftmp}")"
 
-        toc="$(echo "${toc}" | sed 's/DL>/UL>/')"
+        toc="$(echo "${toc}" | sed 's/<DL>/<UL class="man-toc">/')"
+        toc="$(echo "${toc}" | sed 's/<\/DL>/<\/UL>/')"
         toc="$(echo "${toc}" | sed 's/<DT>/<LI>/')"
         toc="$(echo "${toc}" | sed 's/<DD>/<\/LI>/')"
 
@@ -51,6 +54,15 @@ do
 
         # change deprecated name in <a> into id
         sed -i 's/A NAME="/A ID="/g' "${ftmp}"
+
+        # generate page info at bottom of page
+        echo "<p class=\"info left\"><a href=\"http://en.bofc.pl\">bofc.pl</a></p><p class=\"info center\">${version_info}</p><p class=\"info right\">${name}(${n})</p>" >> "${ftmp}"
+
+        # convert all h2 into h1 headings
+        sed -i 's/H2>/H1>/g' "${ftmp}"
+
+        # remove obsolete COMPACT from dl
+        sed -i 's/DL COMPACT/DL/g' "${ftmp}"
 
         # move generated file into output directory for further processing
         cp "${ftmp}" "${out}/man${n}/${m}.html"
