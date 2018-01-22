@@ -38,6 +38,10 @@ do
         ## get table of content from file
         toc="$(sed -n '/<DL>/,/<\/DL>/p' "${ftmp}")"
 
+        toc="$(echo "${toc}" | sed 's/DL>/UL>/')"
+        toc="$(echo "${toc}" | sed 's/<DT>/<LI>/')"
+        toc="$(echo "${toc}" | sed 's/<DD>/<\/LI>/')"
+
         ## put table of content and first two lines into file and append hr
         { echo -e "${tmp}\n${toc}\n<HR>"; cat "${ftmp}"; } > tmp; mv tmp "${ftmp}"
 
