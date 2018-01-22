@@ -1,47 +1,39 @@
 .TH "rb_version" "3" "20 January 2018 (v2.1.0)" "bofc.pl"
-
 .SH NAME
-
-\fBrb_version\fR - queries for library version
-
+.PP
+.B rb_version
+- queries for library version
 .SH SYNOPSIS
-
-.sh
+.PP
 .BI "#include <librb.h>"
-
-.sh
+.PP
 .BI "const char *rb_version(char *" major ", char *" minor ", char *" patch ");"
-
 .SH DESCRIPTION
-
-Function returns library version. Each of input parameters should be at least 4
-bytes long.  If any of the input parameters is \fBNULL\fR function won't store
-anything and will just return version as string. \fBlibrb\fR uses semantic
-versioning:
-
+.PP
+Function returns library version.
+Each of input parameters should be at least 4 bytes long.
+If any of the input parameters is NULL function won't store anything and will
+just return version as string.
+.B librb
+uses semantic versioning:
 .TP
 .I major
 This will be incremented when changes non backward compatible changes are made
 to either ABI or API.
-
 .TP
 .I minor
 This will incremented when backward compatible changes are introduced (like new
 features) to either ABI or API.
-
 .TP
 .I patch
 This is incremented when patch is introduced without changing neither ABI nor
-API
-
-
+API.
 .SH RETURN VALUES
-
+.PP
 Function returns pointer to statically allocated string with full version, like
 "1.2.6"
-
 .SH SEE ALSO
-
+.PP
 .BR rb_overview (7),
 .BR rb_new (3),
 .BR rb_destroy (3),

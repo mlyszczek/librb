@@ -1,73 +1,113 @@
 .TH "rb_write" "3" "20 January 2018 (v2.1.0)" "bofc.pl"
-
 .SH NAME
-
-\fBrb_write\fR, \fBrb_send\fR - functions to put data on ring buffer
-
+.PP
+.BR rb_write,
+.B rb_send
+- functions to put data on ring buffer
 .SH SYNOPSIS
-
-.sh
+.PP
 .BI "#include <librb.h>"
-
-.sh
-.BI "long rb_write(struct rb *" rb ", const void *" buffer ","
-.BI "size_t " count ");"
+.PP
+.BI "long rb_write(struct rb *" rb ", const void *" buffer ", \
+size_t " count ");"
 .br
-.BI "long rb_send(struct rb *" rb ", const void *" buffer ","
-.BI "size_t " count ", unsigned long " flags ");"
-
+.BI "long rb_send(struct rb *" rb ", const void *" buffer ", \
+size_t " count ", unsigned long " flags ");"
 .SH DESCRIPTION
-
-\fBrb_write\fR(3) copies at most \fIcount\fB \fBelements\fR from \fIbuffer\fR
-to \fIrb\fR buffer.
-
-Note by \fBelements\fR we don't mean \fBbytes\fR. For example if
-\fBobject_size\fR is 4 bytes, and \fIcount\fR is 3, this will copy 4 * 3 = 12
-bytes from \fIbuffer\fR
-
-Write functions works the same way in multi-threaded mode as read ones. Please
-see \fBrb_read\fR(3) description for more details.
-
-\fBrb_send\fR(3) works the same way as \fBrb_write\fR(3) but also accepts
-following \fIflags\fR
-
+.PP
+.BR rb_write (3)
+copies at most
+.I count
+.B elements
+from
+.I buffer
+to
+.I rb
+buffer.
+.PP
+Note by
+.B elements
+we don't mean
+.BR bytes.
+For example if
+.B object_size
+is 4 bytes, and
+.I count
+is 3, this will copy 4 * 3 = 12 bytes from
+.I buffer
+.PP
+Write functions works the same way in multi-threaded mode as read ones.
+Please see
+.BR rb_read (3)
+description for more details.
+.PP
+.BR rb_send (3)
+works the same way as
+.BR rb_write (3)
+but also accepts following
+.IR flags :
 .TP
 .B MSG_DONTWAIT
 Only works in multi threaded environment, on single threaded mode this is
-default.  When passed and \fIrb\fR buffer contains less free \fBelements\fR than
-passed in \fIcount\fR, function will copy all \fBelements\fR from \fIbuffer\fR
-into \fIrb\fR and will return immediately.
-
+default.
+When passed and
+.I rb
+buffer contains less free
+.B elements
+than passed in
+.IR count,
+function will copy all
+.B elements
+from
+.I buffer
+into
+.I rb
+and will return immediately.
 .SH RETURN VALUES
-
-On successfull write, function will return number of \fBelements\fR it stored in
-\fIrb\fR. Returned value can be less than \fIcount\fR if \fIrb\fR doesn't
-contain enough free space and function operates in non blocking mode. In such
-case it is also ok for function to return 0 - meaning \fIrb\fR is full. On
-errors function returns -1, in such case, \fIrb\fR buffer is left intact.
-
+.PP
+On successfull write, function will return number of
+.B elements
+it stored in
+.IR rb.
+Returned value can be less than
+.I count
+if
+.I rb
+doesn't contain enough free space and function operates in non blocking mode.
+In such case it is also ok for function to return 0 - meaning
+.I rb
+is full.
+On errors function returns -1, in such case,
+.I rb
+buffer is left intact.
 .SH ERRORS
-
 .TP
 .B EINVAL
 Any of the passed pointers is NULL
-
 .TP
 .B EAGAIN
-This error will be set, when \fIrb\fR is operating in non blocking mode, and
-\fIrb\fR buffer contains less free \fBelements\fR space than requested by
-\fIcount\fR. Note, this is not an actual error, and will not happen when
-function returns -1.
-
+This error will be set, when
+.I rb
+is operating in non blocking mode, and
+.I rb
+buffer contains less free
+.B elements
+space than requested by
+.IR count .
+Note, this is not an actual error, and will not happen when function returns -1.
 .TP
 .B ECANCELED
-\fBrb_stop\fR(3) was called, and operation was cancelled, because \fIrb\fR
-object is abou to be destroyed. You should not access \fIrb\fR object after
-you receive this error. Otherwise you will probably get deadlock or application
-will crash. Returned only if threads are enabled.
-
+.BR rb_stop (3)
+was called, and operation was cancelled, because
+.I rb
+object is abou to be destroyed.
+You should not access
+.I rb
+object after you receive this error.
+Otherwise you will probably get deadlock or application will crash.
+Returned only if threads are enabled.
 .SH SEE ALSO
-
+.PP
 .BR rb_overview (7),
 .BR rb_new (3),
 .BR rb_destroy (3),

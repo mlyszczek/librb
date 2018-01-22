@@ -1,28 +1,28 @@
 .TH "rb_space" "3" "20 January 2018 (v2.1.0)" "bofc.pl"
-
 .SH NAME
-
-\fBrb_space\fR, \fBrb_count\fR - get count information for ring buffer
-
+.PP
+.BR rb_space,
+.B rb_count
+- get count information for ring buffer
 .SH SYNOPSIS
-
-.sh
+.PP
 .BI "#include <librb.h>"
-
-.sh
+.PP
 .BI "size_t rb_count(struct rb *" rb ");"
 .br
 .BI "size_t rb_space(struct rb *" rb ");"
-.br
-
 .SH RETURN VALUES
-
-\fBrb_count\fR(3) returns number of \fBelements\fR that are currently stored in
-buffer, and \fBrb_space\fR(3) returns number of how many \fBelements\fR you can
-put on the buffer.
-
+.PP
+.BR rb_count (3)
+returns number of
+.B elements
+that are currently stored in buffer, and
+.BR rb_space (3)
+returns number of how many
+.B elements
+you can put on the buffer.
 .SH SEE ALSO
-
+.PP
 .BR rb_overview (7),
 .BR rb_new (3),
 .BR rb_destroy (3),

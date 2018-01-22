@@ -1,79 +1,124 @@
 .TH "rb_new" "3" "20 January 2018 (v2.1.0)" "bofc.pl"
-
 .SH NAME
-
-\Brb_new\fR - create new ring buffer
-
+.PP
+.B rb_new
+- create new ring buffer
 .SH SYNOPSIS
-
-.sh
+.PP
 .BI "#include <librb.h>"
-
-.sh
-.BI "struct rb *rb_new(size_t " count ", size_t " object_size ","
-.BI "unsigned long " flags ");"
-
+.PP
+.BI "struct rb *rb_new(size_t " count ", size_t " object_size ", \
+unsigned long " flags ");"
 .SH DESCRIPTION
-
-\fBrb_new\fR(3) creates new ring buffer object with maximum \fIcount\fR
-elements, each of \fIobject_size\fR bytes with \fIflags\fR. Handle to ring
-buffer is returned on successfull initalization. Loosing this pointer will lead
-to memory leak.
-
-\fIcount\fR and \fIobject_size\fR describes buffer sizes. Library will allocate
-on callers heap (\fIcount\fR * \fIobject_size\fR) bytes. \fIcount\fR must be a
-power of two number (ie. 4, 64, 1024), as library tries to avoid unecessary
-conditional jump to improve performance. \fIobject_size\fR determines how big a
-single element is. This value is constant for lifetime of a ring buffer.
-\fIobject_size\fR might be for example \fBsizeof(uint8_t)\fR or
-\fBsizeof(uint32_t)\fR or even \fBsizeof(struct my_msg)\fR. In short,
-\fIobject_size\fR should be a size of an object, ring buffer will hold. You
-should not write nor read objects of different size than created one, as this
-will lead to undefined behaviour or even crashes.
-
-Function can accept following \fIflags\fR
-
+.PP
+.BR rb_new (3)
+creates new ring buffer object with maximum
+.I count
+elements, each of
+.I object_size
+bytes with
+.IR flags.
+Handle to ring buffer is returned on successfull initalization.
+Loosing this pointer will lead to memory leak.
+.PP
+.I count
+and
+.I object_size
+describes buffer sizes.
+Library will allocate on callers heap
+.RI ( count
+*
+.IR object_size )
+bytes.
+.Icount
+must be a power of two number (ie. 4, 64, 1024), as library tries to avoid
+unecessary conditional jump to improve performance.
+.I object_size
+determines how big a single element is.
+This value is constant for lifetime of a ring buffer.
+.I object_size
+might be for example
+.B sizeof(uint8_t)
+or
+.B sizeof(uint32_t)
+or even
+.BR "sizeof(struct my_msg)" .
+In short,
+.I object_size
+should be a size of an object, ring buffer will hold.
+You should not write nor read objects of different size than created one, as
+this will lead to undefined behaviour or even crashes.
+.PP
+Function can accept following
+.I flags
 .TP
 .B O_NONBLOCK
 if set, all calls to library functions will return immediately even if buffer
-is full or empty. Proper functions will then return with errno set to
-\fBEAGAIN\fR and number of elements actually commited. This is default behaviour
-when \fBlibrb\fR is compiler without \fBENABLE_THREADS\fR.
+is full or empty.
+Proper functions will then return with errno set to
+.B EAGAIN
+and number of elements actually commited.
+This is default behaviour when
+.B librb
+is compiler without
+.BR ENABLE_THREADS.
 .TP
 .B O_NONTHREAD
-this can be set only when library has been compiled with \fBENABLE_THREADS\fR
-otherwise, this flag is ignored. If set, \fBlibrb\fR functions will not be using
-\fBpthread\fR. This should be used only when you are sure that \fIrb\fR object
-will be accessed at most by 1 thread at a time. If more than 1 thread will try
-access \fIrb\fR object when this flag is set, such call will result in undefined
-behaviour. When \fBO_NONTHREAD\fR is set, \fBO_NONBLOCK\fR should also be set so
-all function calls are non-blocking. If \fBENABLE_THREADS\fR is not set, funcions
-behave as (\fBO_NONTHREAD\fR | \fBO_NONBLOCK\fR) flag was set. When this flag
-is passed to \fBrb_new\fR(3), user should also set \fBO_NONBLOCK\fR or
-\fBEINVAL\fR error will be returned to prevent deadlocks.
-
+this can be set only when library has been compiled with
+.B ENABLE_THREADS
+otherwise, this flag is ignored. If set,
+.B librb
+functions will not be using pthread.
+This should be used only when you are sure that
+.I rb
+object will be accessed at most by 1 thread at a time.
+If more than 1 thread will try access
+.I rb
+object when this flag is set, such call will result in undefined behaviour.
+When
+.B O_NONTHREAD
+is set,
+.B O_NONBLOCK
+should also be set so
+all function calls are non-blocking.
+If
+.B ENABLE_THREADS
+is not set, funcions
+behave as (
+.B O_NONTHREAD
+|
+.BR O_NONBLOCK )
+flag was set.
+When this flag is passed to
+.BR rb_new (3),
+user should also set
+.B O_NONBLOCK
+or
+.B EINVAL
+error will be returned to prevent deadlocks.
 .SH RETURNED VALUES
-
+.PP
 If no errors have been detected, function will return pointer to newly created
-ring buffer, otherwise NULL is returned
-
+ring buffer, otherwise NULL is returned.
 .SH ERRORS
-
 .TP
 .B EINVAL
-\fIcount\fR is not a power of two number (like 4, 64, 1024)
-
+.I count
+is not a power of two number (like 4, 64, 1024).
 .TP
 .B EINVAL
-\fBO_NONTHREAD\fR was set but \fBO_NONBLOCK\fR was not (only when library was
-compiled with \fBpthread\fR support
-
+.B O_NONTHREAD
+was set but
+.B O_NONBLOCK
+was not (only when library was compiled with pthread support.
 .TP
 .B ENOMEM
-couldn't allocate memory for given \fIcount\fB and \fIobject_size\fB
-
+couldn't allocate memory for given
+.I count
+and
+.I object_size
 .SH SEE ALSO
-
+.PP
 .BR rb_overview (7),
 .BR rb_destroy (3),
 .BR rb_stop (3),

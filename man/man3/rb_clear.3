@@ -1,36 +1,37 @@
 .TH "rb_clear" "3" "20 January 2018 (v2.1.0)" "bofc.pl"
-
 .SH NAME
-
-\fBrb_clear\fR - removes all data from ring buffer
-
+.PP
+.B rb_clear
+- removes all data from ring buffer
 .SH SYNOPSIS
-
-.sh
-.BI "#include <librb.h>"
-
-.sh
+.PP
+.B "#include <librb.h>"
+.PP
 .BI "int rb_clear(struct rb *" rb ", int " clear ");"
-
 .SH DESCRIPTION
-
-Simply clears \fIrb\fR buffer from all data. Function is pretty quick as this is
-just a matter of setting inside pointers. If \fIclear\fR is set, function will
-also zero whole memory, this may be slow, depending on the size of ring buffer
-
+.PP
+Simply clears
+.I rb
+buffer from all data.
+Function is pretty quick as this is just a matter of setting inside pointers.
+If
+.I clear
+is set, function will also zero whole memory, this may be slow, depending on the
+size of ring buffer.
 .SH RETURN VALUES
-
+.PP
 Function will return 0 when ring buffer has been clear, or -1 when there was
-error. In case of an error, \fIrb\fR is not modified.
-
+error.
+In case of an error,
+.I rb
+is not modified.
 .SH ERRORS
-
 .TP
 .B EINVAL
-\fIrb\fR is invalid (null)
-
+.I rb
+is invalid (null).
 .SH SEE ALSO
-
+.PP
 .BR rb_overview (7),
 .BR rb_new (3),
 .BR rb_destroy (3),

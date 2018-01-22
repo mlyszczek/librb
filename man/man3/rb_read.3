@@ -1,93 +1,147 @@
 .TH "rb_read" "3" "20 January 2018 (v2.1.0)" "bofc.pl"
-
 .SH NAME
-
-\fBrb_read\fR, \fBrb_recv\fR - functions to retrieve data from ring buffer
-
+.PP
+.BR rb_read ,
+.B rb_recv
+- functions to retrieve data from ring buffer
 .SH SYNOPSIS
-
-.sh
+.PP
 .BI "#include <librb.h>"
-
-.sh
+.PP
 .BI "long rb_read(struct rb *" rb ", void *" buffer ", size_t " count ");"
 .br
-.BI "long rb_recv(struct rb *" rb ", void *" buffer ", size_t " count ","
-.BI "unsigned long " flags ");"
-
+.BI "long rb_recv(struct rb *" rb ", void *" buffer ", size_t " count ", \
+unsigned long " flags ");"
+.fi
 .SH DESCRIPTION
-
-\fBrb_read\fR(3) copies at most \fIcount\fB \fBelements\fR from ring buffer
-\fIrb\fR to memory pointed by \fIbuffer\fR
-
-Note that by \fBelements\fR we don't mean \fBbytes\fR. For example if
-\fBobject_size\fR is 4 bytes, and \fIcount\fR is 3, this will copy 4 * 3 = 12
-bytes into \fIbuffer\fR
-
+.PP
+.BR rb_read (3)
+copies at most
+.I count
+.B elements
+from ring buffer
+.I rb
+to memory pointed by
+.I buffer
+.PP
+Note that by
+.B elements
+we don't mean
+.BR bytes .
+For example if
+.B object_size
+is 4 bytes, and
+.I count
+is 3, this will copy 4 * 3 = 12 bytes into
+.I buffer
 Functions can and will try to commit as many bytes as possible in a single
-burst, so it is better to call these function once with big \fIcount\fR number
-than call it in a loop with \fIcount\fR == 1.
-
-By default (if buffer wasn't created with O_NONBLOCK flag), every read and will
-block until it reads all element passed to the function. When read function
-blocks, caller thread is put to sleep, so it doesn't use any processor time,
-until it is waked by opossite write call, ie. when ring buffer is empty, and
-user calls \fBrb_read\fR(3), thread will sleep until another thread calls
-\fBrb_write\fR(3) and puts some data for read operation.
-
-\fBrb_recv\fR(3) works the same but it also accepts \fIflags\fR. Possible
-\fIflags\fR are:
-
+burst, so it is better to call these function once with big
+.I count
+number than call it in a loop with
+.I count
+== 1.
+.PP
+By default (if buffer wasn't created with
+.B O_NONBLOCK
+flag), every read and will block until it reads all element passed to the
+function.
+When read function blocks, caller thread is put to sleep, so it doesn't use any
+processor time, until it is waked by opossite write call, ie. when ring buffer
+is empty, and user calls
+.BR rb_read (3),
+thread will sleep until another thread calls
+.BR rb_write (3)
+and puts some data for read operation.
+.PP
+.BR rb_recv (3)
+works the same but it also accepts
+.IR flags .
+Possible
+.I flags
+are:
 .TP
 .B MSG_DONTWAIT
 Only works in multi threaded environment, on single threaded mode this is
-default.  When passed and \fIrb\fR buffer contains less \fBelements\fR than
-passed in \fIcount\fR, function will copy all bytes from \fIrb\fR into
-\fIbuffer\fR and will return immediately. This means, function will never
-block, no matter what.
-
+default.
+When passed and
+.I rb
+buffer contains less
+.B elements
+than passed in
+.IR count ,
+function will copy all bytes from
+.I rb
+into
+.I buffer
+and will return immediately.
+This means, function will never block, no matter what.
 .TP
 .B MSG_PEEK
-Reads from \fIrb\fR into \fIbuffer\fR as normal, but doesn't remove data from
-\fIrb\fR, so consecutive calls to this function will return same data (provided
-that nobody called \fBrb_recv\fR(3) without this flag). When this is called in
-threaded environment enabled, functions will act as if \fBMSG_DONTWAIT\fR flag
-was also passed. It is guaranteed that calling function with this flag, will not
-alter internal state of \fIrb\fR object.
-
+Reads from
+.I rb
+into
+.I buffer
+as normal, but doesn't remove data from
+.IR rb,
+so consecutive calls to this function will return same data (provided
+that nobody called
+.BR rb_recv (3)
+without this flag).
+When this is called in threaded environment enabled, functions will act as if
+.B MSG_DONTWAIT
+flag was also passed.
+It is guaranteed that calling function with this flag, will not alter internal
+state of
+.I rb object.
 .SH RETURN VALUES
-
-On successfull read, function will return number of \fBelements\fR it read and
-stored in \fIbuffer\fR. Returned value can be less than \fIcount\fR if \fIrb\fR
-doesn't contain enough data and function operates in non blocking mode. In such
-case it is also ok for function to return 0 - meaning buffer is empty. On errors
-function returns -1, in such case, \fIrb\fR buffer is left intact.
-
+.PP
+On successfull read, function will return number of
+.B elements
+it read and stored in
+.IR buffer .
+Returned value can be less than
+.I count
+if
+.I rb
+doesn't contain enough data and function operates in non blocking mode.
+In such case it is also ok for function to return 0 - meaning buffer is empty.
+On errors function returns -1, in such case,
+.I rb
+buffer is left intact.
 .SH ERRORS
-
 .TP
 .B EINVAL
-Any of the passed pointers is NULL
-
+Any of the passed pointers is NULL.
 .TP
 .B EINVAL
-\fBMSG_PEEK\fR was passed but \fIrb\fR is operating in multi-threaded mode
-
+.B MSG_PEEK
+was passed but
+.I rb
+is operating in multi-threaded mode.
 .TP
 .B EAGAIN
-This error will be set, when \fIrb\fR is operating in non blocking mode, and
-\fIrb\fR buffer contains less \fBelements\fR than requested by \fIcount\fR.
+This error will be set, when
+.I rb
+is operating in non blocking mode, and
+.I rb
+buffer contains less
+.B elements
+than requested by
+.IR count .
 Note, this is not an actual error, and will not happen when function returns -1.
-
 .TP
 .B ECANCELED
-\fBrb_stop\fR(3) was called, and operation was cancelled, because \fIrb\fR
-object is abou to be destroyed. You should not access \fIrb\fR object after
-you receive this error. Otherwise you will probably get deadlock or application
-will crash. Returned only if threads are enabled.
-
+.BR rb_stop (3)
+was called, and operation was cancelled, because
+.I rb
+object is abou to be destroyed.
+You should not access
+.I rb
+object after you receive this error.
+Otherwise you will probably get deadlock or application will crash.
+Returned only if threads are enabled.
 .SH SEE ALSO
-
+.PP
 .BR rb_overview (7),
 .BR rb_new (3),
 .BR rb_destroy (3),
