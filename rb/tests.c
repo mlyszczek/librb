@@ -264,7 +264,39 @@ static void multi_thread(void)
     free(recv_buf);
 }
 
+
+static void nonthread_without_nonblock(void)
+{
+    struct rb *rb;
+
+    rb = rb_new(4, 1, O_NONTHREAD);
+    mt_fail(errno == EINVAL);
+    mt_fail(rb == NULL);
+    rb_destroy(rb);
+}
+
 #endif
+
+static void invalid_read_write(void)
+{
+    struct rb *rb;
+    int v;
+
+    rb = rb_new(4, 1, 0);
+    mt_ferr(rb_read(NULL, &v, 1), EINVAL);
+    mt_ferr(rb_read(rb, NULL, 1), EINVAL);
+    mt_ferr(rb_write(NULL, &v, 1), EINVAL);
+    mt_ferr(rb_write(rb, NULL, 1), EINVAL);
+    rb_destroy(rb);
+}
+
+static void invalid_stop(void)
+{
+    struct rb *rb;
+    rb = rb_new(4, 1, O_NONBLOCK | O_NONTHREAD);
+    mt_ferr(rb_stop(rb), EINVAL);
+    rb_destroy(rb);
+}
 
 static void peeking(void)
 {
@@ -371,6 +403,17 @@ static void single_thread(void)
     rb_destroy(rb);
 }
 
+
+static void bad_count_value(void)
+{
+    struct rb *rb;
+
+    rb = rb_new(6, 1, 0);
+    mt_fail(errno == EINVAL);
+    mt_fail(rb == NULL);
+}
+
+
 int main(void)
 {
     unsigned int t_rblen_max = 128;
@@ -416,6 +459,12 @@ int main(void)
     }
 
     mt_run(peeking);
+    mt_run(bad_count_value);
+    mt_run(invalid_read_write);
+
+#if ENABLE_THREADS
+    mt_run(nonthread_without_nonblock);
+#endif
 
     mt_return();
 }
