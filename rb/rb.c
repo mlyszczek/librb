@@ -639,16 +639,7 @@ struct rb *rb_new
 #else
     if (flags & O_NONTHREAD)
     {
-        if (!(flags & O_NONBLOCK))
-        {
-            /*
-             * O_NONBLOCK is not set, but it should if O_NONTHREAD is used
-             */
-
-            e = EINVAL;
-            goto error;
-        }
-
+        VALIDGO(EINVAL, error, flags & O_NONBLOCK)
         return rb;
     }
 
@@ -658,35 +649,23 @@ struct rb *rb_new
 
     rb->stopped_all = -1;
     rb->force_exit = 0;
-    if (pthread_mutex_init(&rb->lock, NULL))
-    {
-        e = errno;
-        goto error;
-    }
 
-    if (pthread_cond_init(&rb->wait_data, NULL))
-    {
-        e = errno;
-        goto error;
-    }
-
-    if (pthread_cond_init(&rb->wait_room, NULL))
-    {
-        e = errno;
-        goto error;
-    }
+    VALIDGO(e, error_lock, (e = pthread_mutex_init(&rb->lock, NULL)) == 0);
+    VALIDGO(e, error_data, (e = pthread_cond_init(&rb->wait_data, NULL)) == 0);
+    VALIDGO(e, error_room, (e = pthread_cond_init(&rb->wait_room, NULL)) == 0);
 
     return rb;
 
-error:
-    pthread_mutex_destroy(&rb->lock);
+error_room:
     pthread_cond_destroy(&rb->wait_data);
-    pthread_cond_destroy(&rb->wait_room);
-
+error_data:
+    pthread_mutex_destroy(&rb->lock);
+error_lock:
+    errno = e;
+error:
     free(rb->buffer);
     free(rb);
 
-    errno = e;
     return NULL;
 #endif
 }
@@ -721,6 +700,7 @@ long rb_read
     Same as rb_read but also accepts flags
    ========================================================================== */
 
+
 long rb_recv
 (
     struct rb     *rb,      /* rb object */
@@ -729,11 +709,9 @@ long rb_recv
     unsigned long  flags    /* operation flags */
 )
 {
-    if (rb == NULL || buffer == NULL || rb->buffer == NULL)
-    {
-        errno = EINVAL;
-        return -1;
-    }
+    VALID(EINVAL, rb);
+    VALID(EINVAL, buffer);
+    VALID(EINVAL, rb->buffer);
 
 #if ENABLE_THREADS
     if (rb->flags & O_NONTHREAD)
@@ -810,11 +788,9 @@ long rb_send
     unsigned long  flags    /* operation flags */
 )
 {
-    if (rb == NULL || buffer == NULL || rb->buffer == NULL)
-    {
-        errno = EINVAL;
-        return -1;
-    }
+    VALID(EINVAL, rb);
+    VALID(EINVAL, buffer);
+    VALID(EINVAL, rb->buffer);
 
 #if ENABLE_THREADS
     if (rb->flags & O_NONTHREAD)
@@ -849,11 +825,8 @@ int rb_clear
     int         clear  /* if set to 1, also clears memory */
 )
 {
-    if (rb == NULL || rb->buffer == NULL)
-    {
-        errno = EINVAL;
-        return -1;
-    }
+    VALID(EINVAL, rb);
+    VALID(EINVAL, rb->buffer);
 
 #if ENABLE_THREADS
     if ((rb->flags & O_NONBLOCK) == 0)
@@ -892,11 +865,8 @@ int rb_destroy
     struct rb *rb  /* rb object */
 )
 {
-    if (rb == NULL)
-    {
-        errno = EINVAL;
-        return -1;
-    }
+    VALID(EINVAL, rb);
+    VALID(EINVAL, rb->buffer);
 
 #if ENABLE_THREADS
     if (rb->flags & O_NONTHREAD)
@@ -946,15 +916,17 @@ int rb_stop
 )
 {
 #if ENABLE_THREADS
-    if (rb == NULL || rb->flags & O_NONTHREAD)
-    {
-        errno = EINVAL;
-        return -1;
-    }
+    int         e;  /* errno value */
+    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+    VALID(EINVAL, rb);
+    VALID(EINVAL, (rb->flags & O_NONTHREAD) != O_NONTHREAD);
 
     rb->stopped_all = 0;
-    if (pthread_create(&rb->stop_thread, NULL, rb_stop_thread, rb) != 0)
+    if ((e = pthread_create(&rb->stop_thread, NULL, rb_stop_thread, rb)) != 0)
     {
+        errno = e;
         return -1;
     }
 
