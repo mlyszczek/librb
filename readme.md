@@ -135,11 +135,7 @@ See also
 [x64lu]: http://ci.librb.kurwinet.pl/badges/x86_64-builder-linux-uclibc-tests.svg
 [x64ss]: http://ci.librb.kurwinet.pl/badges/x86_64-builder-solaris-tests.svg
 
-sanitizers
-----------
-
 [fsan]: http://ci.librb.kurwinet.pl/badges/fsanitize-address.svg
 [fsleak]: http://ci.librb.kurwinet.pl/badges/fsanitize-leak.svg
 [fsthread]: http://ci.librb.kurwinet.pl/badges/fsanitize-thread.svg
 [fsun]: http://ci.librb.kurwinet.pl/badges/fsanitize-undefined.svg
-

@@ -57,53 +57,53 @@ function, to force all threads to exit, then join them, and after that destroy
 .I rb
 object.
 Look at below example.
-.nf
 .PP
-void *consumer(void *arg)
-{
-    struct rb *rb = arg;
-    int v, e;
-    if (rb_read(rb, &v, 1) != 0)
+.EX
+    void *consumer(void *arg)
     {
-        if (errno == ECANCELED)
+        struct rb *rb = arg;
+        int v, e;
+        if (rb_read(rb, &v, 1) != 0)
         {
-            /* function was forced to exit, we should stop thread
-             * or at least make sure we don't access rb_* functions
-             * anymore
-             /
+            if (errno == ECANCELED)
+            {
+                /* function was forced to exit, we should stop thread
+                 * or at least make sure we don't access rb_* functions
+                 * anymore
+                 /
 
-             return NULL;
+                 return NULL;
+            }
         }
+        /* more code */
     }
-    /* more code */
-}
 
-void foo(void)
-{
-    /* some code */
-    for (int i = 0; i != 10; ++i)
+    void foo(void)
     {
-        pthread_create(&consumers[i], NULL, consumer, rb);
+        /* some code */
+        for (int i = 0; i != 10; ++i)
+        {
+            pthread_create(&consumers[i], NULL, consumer, rb);
+        }
+
+        /* wait for some event */
+        /* force all consumer threads to exit even if they are locked
+         * in some conditional variables
+         */
+        rb_stop(rb);
+
+        for (i = 0; i != 10; ++i)
+        {
+            /* make sure all consumer threads stopped, and none will access
+             * any rb_* functions
+             /
+            pthread_join(consumers[i], NULL);
+        }
+
+        /* now it is safe to call rb_destroy function */
+        rb_destroy(rb);
     }
-
-    /* wait for some event */
-    /* force all consumer threads to exit even if they are locked
-     * in some conditional variables
-     */
-    rb_stop(rb);
-
-    for (i = 0; i != 10; ++i)
-    {
-        /* make sure all consumer threads stopped, and none will access
-         * any rb_* functions
-         /
-        pthread_join(consumers[i], NULL);
-    }
-
-    /* now it is safe to call rb_destroy function */
-    rb_destroy(rb);
-}
-.fi
+.EE
 .SH RETURN VALUES
 .PP
 Function will return 0 when all resources were freed, otherwise -1 is returned.
