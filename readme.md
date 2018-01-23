@@ -10,28 +10,28 @@ there are 0 (zero) syscalls, everything is done in user's process without kernel
 interfering and steeling precious cpu cycles. Altough librb provides
 some more functions, it can be operated using 4 basic functions
 
-  * [rb_new](http://librb.kurwinet.pl/manuals/man3/rb_clear.3.html) -
+  * [rb_new](http://librb.kurwinet.pl/manuals/rb_clear.3.html) -
     creates new ring buffer
-  * [rb_read](http://librb.kurwinet.pl/manuals/man3/rb_read.3.html) -
+  * [rb_read](http://librb.kurwinet.pl/manuals/rb_read.3.html) -
     reads from the ring buffer
-  * [rb_write](http://librb.kurwinet.pl/manuals/man3/rb_write.3.html) -
+  * [rb_write](http://librb.kurwinet.pl/manuals/rb_write.3.html) -
      writes to the ring buffer
-  * [rb_destroy](http://librb.kurwinet.pl/manuals/man3/rb_destroy.3.html) -
+  * [rb_destroy](http://librb.kurwinet.pl/manuals/rb_destroy.3.html) -
     destroys ring buffer
 
 Additional functions are:
 
-  * [rb_recv](http://librb.kurwinet.pl/manuals/man3/rb_recv.3.html) -
+  * [rb_recv](http://librb.kurwinet.pl/manuals/rb_recv.3.html) -
     reads from the ring buffer but also accepts flags
-  * [rb_send](http://librb.kurwinet.pl/manuals/man3/rb_send.3.html) -
+  * [rb_send](http://librb.kurwinet.pl/manuals/rb_send.3.html) -
     writes to the ring buffer but also accepts flags
-  * [rb_clear](http://librb.kurwinet.pl/manuals/man3/rb_clear.3.html) -
+  * [rb_clear](http://librb.kurwinet.pl/manuals/rb_clear.3.html) -
     removes all elements from the buffer
-  * [rb_count](http://librb.kurwinet.pl/manuals/man3/rb_count.3.html) -
+  * [rb_count](http://librb.kurwinet.pl/manuals/rb_count.3.html) -
     returns number of elements in the buffer
-  * [rb_space](http://librb.kurwinet.pl/manuals/man3/rb_space.3.html) -
+  * [rb_space](http://librb.kurwinet.pl/manuals/rb_space.3.html) -
     returns number of free space for number of elements
-  * [rb_stop](http://librb.kurwinet.pl/manuals/man3/rb_stop.3.html) -
+  * [rb_stop](http://librb.kurwinet.pl/manuals/rb_stop.3.html) -
     forces all threads to exit **rb_write** and **rb_read** functions
 
 Dependencies
