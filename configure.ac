@@ -19,6 +19,10 @@ AC_ARG_ENABLE([threads],
 AS_IF([test "x$enable_threads" = "xyes"],
 [
     AX_PTHREAD
+    LIBS="$PTHREAD_LIBS $LIBS"
+    CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
+    CC="$PTHREAD_CC"
+
     AC_DEFINE([ENABLE_THREADS], [1], [Enable thread awarness])
 ],
 # else
