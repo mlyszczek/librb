@@ -609,6 +609,20 @@ struct rb *rb_new
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 
+#if ENABLE_THREADS == 0
+    /*
+     * Multithreading is not allowed when library was compiled without
+     * thread support
+     */
+
+    VALIDR(ENOSYS, NULL, flags & ~O_MULTITHREAD);
+#else
+    if (flags & O_NONTHREAD)
+    {
+        VALIDR(EINVAL, NULL, flags & O_NONBLOCK)
+    }
+#endif
+
     if (rb_is_power_of_two(count) == 0)
     {
         errno = EINVAL;
@@ -637,12 +651,6 @@ struct rb *rb_new
 #if ENABLE_THREADS == 0
     return rb;
 #else
-    if (flags & O_NONTHREAD)
-    {
-        VALIDGO(EINVAL, error, flags & O_NONBLOCK)
-        return rb;
-    }
-
     /*
      * Multithreaded environment
      */
