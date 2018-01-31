@@ -424,7 +424,6 @@ static long rb_sends
 
 
 #if ENABLE_THREADS
-#include <stdio.h>
 
 long rb_sendt
 (
@@ -608,6 +607,14 @@ struct rb *rb_new
     struct rb     *rb;           /* pointer to newly created buffer */
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
+#if ENABLE_THREADS == 0
+    /*
+     * multithreaded operations are not allowed when library is compiled
+     * without threads
+     */
+
+    VALID(ENOSYS, flags & O_MULTIHREAD);
+#endif
 
     if (rb_is_power_of_two(count) == 0)
     {
@@ -637,15 +644,20 @@ struct rb *rb_new
 #if ENABLE_THREADS == 0
     return rb;
 #else
-    if (flags & O_NONTHREAD)
-    {
-        VALIDGO(EINVAL, error, flags & O_NONBLOCK)
-        return rb;
-    }
-
     /*
      * Multithreaded environment
      */
+
+    if (flags & ~O_MULTITHREAD)
+    {
+        /*
+         * when working in non multi-threaded mode, force O_NONBLOCK flag,
+         * and return, as we don't need to init pthread elements.
+         */
+
+        flags |= O_NONBLOCK;
+        return rb;
+    }
 
     rb->stopped_all = -1;
     rb->force_exit = 0;
@@ -674,10 +686,10 @@ error:
 /* ==========================================================================
     Reads maximum of count elements from rb and  stores  them  into  buffer.
 
-    If rb is O_NONTHREAD or  O_NONBLOCK,  function  will  never  block,  and
-    cannot guarantee writing count elements into buffer.  If  there  is  not
-    enough data  in  ring  buffer,  function  will  read  whole  buffer  and
-    return with elements read.
+    If rb is working in single  thread  mode  or  O_NONBLOCK  flag  is  set,
+    function will never block, and cannot guarantee writing  count  elements
+    into buffer.  If there is not enough data in ring buffer, function  will
+    read whole buffer and return with elements read.
 
     If rb is threaded and  blocking,  function  will  block  (sleep)  caller
     thread until all count  elements  were  copied  into  buffer.   Function
@@ -714,7 +726,7 @@ long rb_recv
     VALID(EINVAL, rb->buffer);
 
 #if ENABLE_THREADS
-    if (rb->flags & O_NONTHREAD)
+    if ((rb->flags & O_MULTITHREAD) == 0)
     {
         return rb_recvs(rb, buffer, count, flags);
     }
@@ -752,13 +764,14 @@ long rb_recv
 /* ==========================================================================
     Writes maximum count data from buffer into rb.
 
-    If rb is O_NONTHREAD or O_NONBLOCK, function will never block, but  also
-    cannot guarantee that count elements will be  copied  from  buffer.   If
-    there is not enough space in rb, function will store as many elements as
-    it  can,  and  return  with  number  of   elements   stored   into   rb.
+    If rb is working in single  thread  mode  or  O_NONBLOCK  flag  is  set,
+    function will never block, but also cannot guarantee that count elements
+    will be copied from buffer. If there is not enough space in rb, function
+    will store as many elements  as  it  can,  and  return  with  number  of
+    elements stored into rb.
 
-    If rb is multithreaded, and blocking function will block (sleep)  caller
-    until count elements have been stored into rb.
+    If rb is multithreaded, and in blocking mode function will block (sleep)
+    caller until count elements have been stored into rb.
 
     Function   os   equivalent   to   call   rb_send   with   flags   ==   0
    ========================================================================== */
@@ -793,7 +806,7 @@ long rb_send
     VALID(EINVAL, rb->buffer);
 
 #if ENABLE_THREADS
-    if (rb->flags & O_NONTHREAD)
+    if ((rb->flags & O_MULTITHREAD) == 0)
     {
         return rb_sends(rb, buffer, count, flags);
     }
@@ -869,7 +882,7 @@ int rb_destroy
     VALID(EINVAL, rb->buffer);
 
 #if ENABLE_THREADS
-    if (rb->flags & O_NONTHREAD)
+    if (rb->flags & ~O_MULTITHREAD)
     {
         free(rb->buffer);
         free(rb);
@@ -921,7 +934,7 @@ int rb_stop
 
 
     VALID(EINVAL, rb);
-    VALID(EINVAL, (rb->flags & O_NONTHREAD) != O_NONTHREAD);
+    VALID(EINVAL, rb->flags & O_MULTITHREAD);
 
     rb->stopped_all = 0;
     if ((e = pthread_create(&rb->stop_thread, NULL, rb_stop_thread, rb)) != 0)

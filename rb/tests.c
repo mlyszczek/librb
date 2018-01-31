@@ -141,7 +141,7 @@ static void multi_producers_consumers(void)
     cons = malloc(t_num_consumers * sizeof(*cons));
     prod = malloc(t_num_producers * sizeof(*prod));
 
-    rb = rb_new(8, sizeof(unsigned int), 0);
+    rb = rb_new(8, sizeof(unsigned int), O_MULTITHREAD);
 
     pthread_mutex_init(&multi_mutex, NULL);
     pthread_mutex_init(&multi_mutex_count, NULL);
@@ -230,7 +230,7 @@ static void multi_thread(void)
         recv_buf[i] = 0;
     }
 
-    rb = rb_new(t_rblen, t_objsize, 0);
+    rb = rb_new(t_rblen, t_objsize, O_MULTITHREAD);
 
     proddata.data = send_buf;
     proddata.len = t_writelen;
@@ -265,16 +265,6 @@ static void multi_thread(void)
 }
 
 
-static void nonthread_without_nonblock(void)
-{
-    struct rb *rb;
-
-    rb = rb_new(4, 1, O_NONTHREAD);
-    mt_fail(errno == EINVAL);
-    mt_fail(rb == NULL);
-    rb_destroy(rb);
-}
-
 #endif
 
 static void invalid_read_write(void)
@@ -293,7 +283,7 @@ static void invalid_read_write(void)
 static void invalid_stop(void)
 {
     struct rb *rb;
-    rb = rb_new(4, 1, O_NONBLOCK | O_NONTHREAD);
+    rb = rb_new(4, 1, 0);
     mt_ferr(rb_stop(rb), EINVAL);
     rb_destroy(rb);
 }
@@ -344,7 +334,6 @@ static void single_thread(void)
 
     struct rb *rb;
     static unsigned long c;
-    int flags;
     size_t i;
     int rc;
 
@@ -356,12 +345,7 @@ static void single_thread(void)
         recv_buf[i] = 0;
     }
 
-    flags = 0;
-#if ENABLE_THREADS
-    flags = O_NONBLOCK | O_NONTHREAD;
-#endif
-
-    rb = rb_new(t_rblen, t_objsize, flags);
+    rb = rb_new(t_rblen, t_objsize, 0);
 
     written = 0;
     read = 0;
@@ -402,7 +386,6 @@ static void single_thread(void)
     free(recv_buf);
     rb_destroy(rb);
 }
-
 
 static void bad_count_value(void)
 {
@@ -461,10 +444,6 @@ int main(void)
     mt_run(peeking);
     mt_run(bad_count_value);
     mt_run(invalid_read_write);
-
-#if ENABLE_THREADS
-    mt_run(nonthread_without_nonblock);
-#endif
 
     mt_return();
 }
