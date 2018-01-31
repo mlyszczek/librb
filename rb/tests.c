@@ -267,6 +267,49 @@ static void multi_thread(void)
 
 #endif
 
+static void multithread_flag(void)
+{
+    struct rb *rb;
+
+    rb = rb_new(4, 1, O_MULTITHREAD);
+
+#if ENABLE_THREADS
+    mt_assert(rb != NULL);
+    rb_destroy(rb);
+#else
+    mt_assert(rb == NULL);
+    mt_assert(errno == ENOSYS);
+#endif
+}
+
+static void nonblocking_flag(void)
+{
+    struct rb *rb;
+    char s[6] = {0, 1, 2, 3, 4, 5};
+    char e[3] = {0, 1, 2};
+    char d[6];
+    int r;
+
+#if ENABLE_THREADS
+    rb = rb_new(4, 1, O_NONBLOCK | O_MULTITHREAD);
+    r = rb_write(rb, s, sizeof(s));
+    mt_fail(r == 3);
+    r = rb_read(rb, d, sizeof(d));
+    mt_fail(r == 3);
+    mt_fok(memcmp(d, e, sizeof(e)));
+    rb_destroy(rb);
+    memset(d, 0, sizeof(d));
+#endif
+
+    rb = rb_new(4, 1, 0);
+    r = rb_write(rb, s, sizeof(s));
+    mt_fail(r == 3);
+    r = rb_read(rb, d, sizeof(d));
+    mt_fail(r == 3);
+    mt_fok(memcmp(d, e, sizeof(e)));
+    rb_destroy(rb);
+}
+
 static void invalid_read_write(void)
 {
     struct rb *rb;
@@ -444,6 +487,8 @@ int main(void)
     mt_run(peeking);
     mt_run(bad_count_value);
     mt_run(invalid_read_write);
+    mt_run(multithread_flag);
+    mt_run(nonblocking_flag);
 
     mt_return();
 }
