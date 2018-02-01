@@ -264,6 +264,21 @@ static void multi_thread(void)
     free(recv_buf);
 }
 
+static void multithread_eagain(void)
+{
+    char s[6] = {0, 1, 2, 3, 4, 5};
+    char d[6];
+    struct rb *rb;
+
+    rb = rb_new(4, 1, O_MULTITHREAD | O_NONBLOCK);
+    rb_write(rb, s, sizeof(s));
+    mt_ferr(rb_write(rb, s, sizeof(s)), EAGAIN);
+    rb_read(rb, d, sizeof(d));
+    mt_ferr(rb_read(rb, d, sizeof(d)), EAGAIN);
+    rb_destroy(rb);
+
+}
+
 
 #endif
 
@@ -309,6 +324,21 @@ static void nonblocking_flag(void)
     mt_fok(memcmp(d, e, sizeof(e)));
     rb_destroy(rb);
 }
+
+static void singlethread_eagain(void)
+{
+    char s[6] = {0, 1, 2, 3, 4, 5};
+    char d[6];
+    struct rb *rb;
+
+    rb = rb_new(4, 1, 0);
+    rb_write(rb, s, sizeof(s));
+    mt_ferr(rb_write(rb, s, sizeof(s)), EAGAIN);
+    rb_read(rb, d, sizeof(d));
+    mt_ferr(rb_read(rb, d, sizeof(d)), EAGAIN);
+    rb_destroy(rb);
+}
+
 
 static void invalid_read_write(void)
 {
@@ -489,6 +519,11 @@ int main(void)
     mt_run(invalid_read_write);
     mt_run(multithread_flag);
     mt_run(nonblocking_flag);
+    mt_run(singlethread_eagain);
+
+#if ENABLE_THREADS
+    mt_run(multithread_eagain);
+#endif
 
     mt_return();
 }
