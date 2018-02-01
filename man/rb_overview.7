@@ -42,19 +42,27 @@ size_t " count ", unsigned long " flags ");"
 .SH DESCRIPTION
 .PP
 .B librb
-is thread safe and thread aware.
-If there are no resources available while reading or writting, caller thread
-gets locked and doesn't use any resources until data is available.
-Ring buffer can also be configured to work in non-blocking mode, so calls from
+is a simple ring buffer implementation that operates on objects rather than
+raw bytes.
+See
+.BR rb_new (3)
+to know what that means.
+By default library operates in single-thread mode which is way faster than
+multi-thread mode but naturally will break if concurrent thread will try to
+access
+.I rb
+object.
+To relief user from pesky synchronization process, library can optionally be
+thread safe and thread aware by passing
+.B O_MULTITHREAD
+flag to
+.BR rb_new (3).
+In multi-thread mode if there are no resources available while reading or
+writting, caller thread gets locked and doesn't use any resources until data is
+available.
+This behaviour can be altered to work in non-blocking mode, so calls from
 read and write will return immediately when there are not enough resources.
 malloc and free are called only in new and destory functions.
-Thread awarness can be disabled via
-.B O_NONTHREAD
-flags passed to
-.BR rb_new (3).
-In such case all calls to rb function will be non blocking.
-Library can also be compiled without thread support at all, then it can be used
-even in very constrained platforms.
 .PP
 As this library is focused on speed, user can create buffer with only power of
 two count (n^2).
@@ -80,7 +88,7 @@ Please note, that example is missing error handling for simplicity.
         struct rb *rb;
 
         /* initialize ring buffer with 32 1-byte elements */
-        rb = rb_new(32, 1, O_NONBLOCK | O_NONTHREAD);
+        rb = rb_new(32, 1, 0);
 
         /* add data to buffer one byte at a time */
         for (i = '0'; i <= '9'; ++i)
