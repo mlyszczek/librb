@@ -21,7 +21,7 @@
 #define MSG_DONTWAIT 0x40
 #endif
 
-#define O_NONTHREAD 0x00010000L
+#define O_MULTITHREAD 0x00010000L
 struct rb;
 
 typedef long (*rb_send_f)(struct rb *, const void *, size_t , unsigned long);

@@ -59,43 +59,21 @@ Proper functions will then return with errno set to
 .B EAGAIN
 and number of elements actually commited.
 This is default behaviour when
+.B O_MULTITHREAD
+flag was
+.B not
+passed and
 .B librb
-is compiler without
-.BR ENABLE_THREADS.
+is working in single thread mode.
 .TP
-.B O_NONTHREAD
+.B O_MULTITHREAD
 this can be set only when library has been compiled with
-.B ENABLE_THREADS
-otherwise, this flag is ignored. If set,
+.BR ENABLE_THREADS ,
+otherwise error will be returned. If set,
 .B librb
-functions will not be using pthread.
-This should be used only when you are sure that
+functions will be using pthreads to provide synchronization of threads accessing
 .I rb
-object will be accessed at most by 1 thread at a time.
-If more than 1 thread will try access
-.I rb
-object when this flag is set, such call will result in undefined behaviour.
-When
-.B O_NONTHREAD
-is set,
-.B O_NONBLOCK
-should also be set so
-all function calls are non-blocking.
-If
-.B ENABLE_THREADS
-is not set, funcions
-behave as (
-.B O_NONTHREAD
-|
-.BR O_NONBLOCK )
-flag was set.
-When this flag is passed to
-.BR rb_new (3),
-user should also set
-.B O_NONBLOCK
-or
-.B EINVAL
-error will be returned to prevent deadlocks.
+object.
 .SH RETURN VALUES
 .PP
 If no errors have been detected, function will return pointer to newly created
@@ -106,11 +84,11 @@ ring buffer, otherwise NULL is returned.
 .I count
 is not a power of two number (like 4, 64, 1024).
 .TP
-.B EINVAL
-.B O_NONTHREAD
+.B ENOSYS
+.B O_MULTITHREAD
 was set but
-.B O_NONBLOCK
-was not (only when library was compiled with pthread support.
+.B librb
+was not compiled with pthread support.
 .TP
 .B ENOMEM
 couldn't allocate memory for given
