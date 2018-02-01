@@ -613,7 +613,7 @@ struct rb *rb_new
      * without threads
      */
 
-    VALID(ENOSYS, flags & O_MULTIHREAD);
+    VALIDR(ENOSYS, NULL, (flags & O_MULTITHREAD) == 0);
 #endif
 
     if (rb_is_power_of_two(count) == 0)
@@ -644,11 +644,7 @@ struct rb *rb_new
 #if ENABLE_THREADS == 0
     return rb;
 #else
-    /*
-     * Multithreaded environment
-     */
-
-    if (flags & ~O_MULTITHREAD)
+    if ((flags & O_MULTITHREAD) == 0)
     {
         /*
          * when working in non multi-threaded mode, force O_NONBLOCK flag,
@@ -658,6 +654,10 @@ struct rb *rb_new
         flags |= O_NONBLOCK;
         return rb;
     }
+
+    /*
+     * Multithreaded environment
+     */
 
     rb->stopped_all = -1;
     rb->force_exit = 0;
@@ -882,7 +882,7 @@ int rb_destroy
     VALID(EINVAL, rb->buffer);
 
 #if ENABLE_THREADS
-    if (rb->flags & ~O_MULTITHREAD)
+    if ((rb->flags & O_MULTITHREAD) == 0)
     {
         free(rb->buffer);
         free(rb);
