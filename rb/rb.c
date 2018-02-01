@@ -150,7 +150,8 @@ static int rb_is_power_of_two
 /* ==========================================================================
     Function reads maximum count of data from rb  into  buffer.   When  user
     requested more data than there is in a buffer, function  will  copy  all
-    data   from   rb   and   will   return   number   of    bytes    copied.
+    data from rb and will return number of bytes copied.  When there  is  no
+    data in buffer, function will return -1 and EAGAIN
 
     If MSG_PEEK flag is set, data will  be  copied  into  buffer,  but  tail
     pointer will not be moved, so consequent call  to  rb_recv  will  return
@@ -180,6 +181,12 @@ static long rb_recvs
          */
 
         count = rbcount;
+    }
+
+    if (count == 0)
+    {
+        errno = EAGAIN;
+        return -1;
     }
 
     objsize = rb->object_size;
@@ -231,7 +238,8 @@ static long rb_recvs
     significant.  When blocking flag is set to 1, and there is less data  in
     rb than count expects, function will copy as many  elements  as  it  can
     (actually it will copy all of data  that  is  in  rb)  and  will  return
-    with   number   of   elements   stored   in    buffer.
+    with   number   of   elements   stored   in    buffer. When there is  no
+    data in buffer, function will return -1 and EAGAIN
    ========================================================================== */
 
 
@@ -277,7 +285,17 @@ static long rb_recvt
             if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
             {
                 pthread_mutex_unlock(&rb->lock);
-                errno = EAGAIN;
+
+                if (read == 0)
+                {
+                    /*
+                     * set errno only when we did not read any bytes from rb
+                     * this is how standard posix read/send works
+                     */
+
+                    errno = EAGAIN;
+                    return -1;
+                }
                 return read;
             }
 
@@ -352,7 +370,7 @@ static long rb_recvt
     Function writes maximum count of data into ring buffer from buffer.   If
     there is not enough space to store all data from buffer,  function  will
     store as many as it can, and will return count of  objects  stored  into
-    rin buffer
+    ring buffer. If buffer is full, function returns -1 and EAGAIN error.
    ========================================================================== */
 
 
@@ -379,6 +397,12 @@ static long rb_sends
          */
 
         count = rbspace;
+    }
+
+    if (count == 0)
+    {
+        errno = EAGAIN;
+        return -1;
     }
 
     objsize = rb->object_size;
@@ -419,7 +443,8 @@ static long rb_sends
     if count is too big, time waiting for space might be significant.   When
     blocking flag is set to 1, and there is less  space  in  rb  than  count
     expects, function will copy as many elements as it can and  will  return
-    with number of elements written to rb.
+    with number of elements written to rb.   If  buffer  is  full,  function
+    returns -1 and EAGAIN error.
    ========================================================================== */
 
 
@@ -464,7 +489,18 @@ long rb_sendt
             if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
             {
                 pthread_mutex_unlock(&rb->lock);
-                errno = EAGAIN;
+
+                if (written == 0)
+                {
+                    /*
+                     * set errno only when we did not read any bytes from rb
+                     * this is how standard posix read/send works
+                     */
+
+                    errno = EAGAIN;
+                    return -1;
+                }
+
                 return written;
             }
 
