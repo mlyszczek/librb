@@ -36,7 +36,7 @@ is 4 bytes, and
 is 3, this will copy 4 * 3 = 12 bytes from
 .I buffer
 .PP
-Write functions works the same way in multi-threaded mode as read ones.
+Write functions works the same way in multi/single-threaded mode as read ones.
 Please see
 .BR rb_read (3)
 description for more details.
@@ -88,13 +88,11 @@ Any of the passed pointers is NULL
 .B EAGAIN
 This error will be set, when
 .I rb
-is operating in non blocking mode, and
+is operating in non blocking mode, and there is no place in
 .I rb
-buffer contains less free
-.B elements
-space than requested by
-.IR count .
-Note, this is not an actual error, and will not happen when function returns -1.
+to write data from
+.I buffer
+immediately
 .TP
 .B ECANCELED
 .BR rb_stop (3)
