@@ -460,6 +460,70 @@ static void single_thread(void)
     rb_destroy(rb);
 }
 
+static void discard(void)
+{
+    char s[8] = "0123456";
+    char d[8];
+    int i;
+    struct rb  *rb;
+
+    for (i = 0; i != 1; i++)
+    {
+        int flags;
+
+#if ENABLE_THREADS
+        flags = i ? O_MULTITHREAD : 0;
+#else
+        /*
+         * yup, if ENABLE_THREADS is 0, same code will be executed twice...
+         * it's not a bug, it's a feature! MORE TESTS NEVER HURT!
+         */
+
+        flags = 0;
+#endif
+        rb = rb_new(8, 1, 0);
+        rb_write(rb, s, 6);
+        rb_discard(rb, 3);
+        rb_read(rb, d, 3);
+        mt_fok(memcmp(d, "345", 3));
+        rb_clear(rb, 0);
+
+        rb_write(rb, s, 6);
+        rb_read(rb, d, 2);
+        rb_discard(rb, 2);
+        rb_read(rb, d, 2);
+        mt_fok(memcmp(d, "45", 2));
+        rb_clear(rb, 0);
+
+        /* overlap cases */
+        rb_write(rb, s, 7);
+        rb_read(rb, d, 5);
+        rb_write(rb, s, 5);
+        rb_discard(rb, 3);
+        rb_read(rb, d, 3);
+        mt_fok(memcmp(d, "123", 3));
+        rb_clear(rb, 0);
+
+        rb_write(rb, s, 7);
+        rb_read(rb, d, 5);
+        rb_write(rb, s, 5);
+        rb_discard(rb, 2);
+        rb_read(rb, d, 3);
+        mt_fok(memcmp(d, "012", 3));
+        rb_clear(rb, 0);
+
+        rb_write(rb, s, 7);
+        rb_read(rb, d, 5);
+        rb_write(rb, s, 5);
+        rb_discard(rb, 4);
+        rb_read(rb, d, 3);
+        mt_fok(memcmp(d, "234", 3));
+        rb_clear(rb, 0);
+
+        rb_destroy(rb);
+    }
+}
+
 static void bad_count_value(void)
 {
     struct rb *rb;
@@ -520,6 +584,7 @@ int main(void)
     mt_run(multithread_flag);
     mt_run(nonblocking_flag);
     mt_run(singlethread_eagain);
+    mt_run(discard);
 
 #if ENABLE_THREADS
     mt_run(multithread_eagain);

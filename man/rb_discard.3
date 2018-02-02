@@ -1,0 +1,64 @@
+.TH "rb_discard" "3" "25 January 2018 (v2.1.2)" "bofc.pl"
+.SH
+.PP
+.B rb_discard
+- allows to quickly discard part of buffer
+.SH SYNOPSIS
+.PP
+.BI "int rb_discard(struct rb *" rb ", size_t " count ");"
+.SH DESCRIPTION
+.PP
+Function
+.BR rb_discard(3)
+will remove
+.I count
+elements from
+.I rb
+buffer.
+This functions is very similar to calling
+.BR rb_read (3)
+and then discarding buffer, but this function is much better because when
+discarding with
+.BR rb_discard (3)
+there is no copying involved, so it's much faster.
+You can pass more
+.I count
+then there is in the buffer.
+Function never blocks calling thread.
+.PP
+Note, it is very difficult to discard data in multi-threaded environment with
+more than one reader per se.
+Thus it is inadvisible to use this function when there are two or more readers
+using same
+.I rb
+object.
+.SH RETURN VALUES
+.PP
+Function will return number of elements actually discarded fomr buffer. It is
+ok for function to return less elements than it was passed in
+.I count
+variable.
+This means there was less elements in
+.I rb
+than requested to be discarded.
+On errors -1 is returned.
+.SH ERRORS
+.PP
+.TP
+.B EINVAL
+.I rb
+is not a valid object.
+.SH SEE ALSO
+.PP
+.BR rb_overview (7),
+.BR rb_new (3),
+.BR rb_destroy (3),
+.BR rb_stop (3),
+.BR rb_read (3),
+.BR rb_recv (3),
+.BR rb_write (3),
+.BR rb_send (3),
+.BR rb_clear (3),
+.BR rb_count (3),
+.BR rb_space (3),
+.BR rb_version (3)

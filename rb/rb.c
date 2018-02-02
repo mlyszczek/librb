@@ -988,6 +988,61 @@ int rb_stop
 
 
 /* ==========================================================================
+    Function that discards data from tail of buffer.  This works  just  like
+    rb_reads function, but is way faster as there  is  no  copying  involved
+   ========================================================================== */
+
+
+size_t rb_discard
+(
+    struct rb  *rb,       /* rb object */
+    size_t      count     /* number of elements to discard */
+)
+{
+    size_t      rbcount;  /* number of elements in rb */
+    size_t      cnte;     /* number of elements in rb until overlap */
+    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+    VALID(EINVAL, rb);
+    VALID(EINVAL, rb->buffer);
+
+#if ENABLE_THREADS
+    if ((rb->flags & O_NONBLOCK) == 0)
+    {
+        pthread_mutex_lock(&rb->lock);
+    }
+#endif
+
+    cnte = rb_count_end(rb);
+    rbcount = rb_count(rb);
+
+    if (count > rbcount)
+    {
+        count = rbcount;
+    }
+
+    if (count > cnte)
+    {
+        rb->tail = count - cnte;
+    }
+    else
+    {
+        rb->tail += count;
+        rb->tail &= rb->count -1;
+    }
+
+#if ENABLE_THREADS
+    if ((rb->flags & O_NONBLOCK) == 0)
+    {
+        pthread_mutex_unlock(&rb->lock);
+    }
+#endif
+
+}
+
+
+/* ==========================================================================
     Returns version of the library
    ========================================================================== */
 

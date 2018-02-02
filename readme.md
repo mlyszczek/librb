@@ -33,6 +33,8 @@ Additional functions are:
     returns number of free space for number of elements
   * [rb_stop](http://librb.kurwinet.pl/manuals/rb_stop.3.html) -
     forces all threads to exit **rb_write** and **rb_read** functions
+  * [rb_discard](http://librb.kurwinet.pl/manuals/rb_discard.3.html) -
+    allows to quickly discard part of buffers data
 
 Dependencies
 ============
