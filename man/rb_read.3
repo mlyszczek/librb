@@ -26,6 +26,7 @@ to memory pointed by
 .PP
 Note that by
 .B elements
+n
 we don't mean
 .BR bytes .
 For example if
@@ -41,17 +42,46 @@ number than call it in a loop with
 .I count
 == 1.
 .PP
-By default (if buffer wasn't created with
-.B O_NONBLOCK
-flag), every read and will block until it reads all element passed to the
-function.
-When read function blocks, caller thread is put to sleep, so it doesn't use any
-processor time, until it is waked by opossite write call, ie. when ring buffer
-is empty, and user calls
-.BR rb_read (3),
-thread will sleep until another thread calls
+By default buffer works in single-threaded mode.
+In this mode all calls on
+.I rb
+object are non blocking.
+This means if
+.I count
+.B elements
+you want to read is higher than there is inside buffer, function
+will copy only as much
+.B elements
+as there are inside
+.I rb
+and will return.
+If
+.BR read (3)
+is called when buffer is empty,
+.B EAGAIN
+error will be returned.
+.PP
+If library has been built with
+.B pthread
+support, and
+.I rb
+was created with
+.B O_MULTITHREAD
+flag, all functions will be blocking calls.
+That means if you want to copy more
+.B elements
+then there is inside
+.I rb
+object, calling thread will be put to sleep - and thus will use no CPU - until
+someone else calls
 .BR rb_write (3)
-and puts some data for read operation.
+to write data to buffer and total
+.I count
+.B elements
+have been copied into
+.IR buffer .
+.I rb
+object in multi-threaded applications without mutexes.
 .PP
 .BR rb_recv (3)
 works the same but it also accepts
@@ -113,22 +143,12 @@ buffer is left intact.
 .B EINVAL
 Any of the passed pointers is NULL.
 .TP
-.B EINVAL
-.B MSG_PEEK
-was passed but
-.I rb
-is operating in multi-threaded mode.
-.TP
 .B EAGAIN
 This error will be set, when
 .I rb
-is operating in non blocking mode, and
+is operating in non blocking mode, and there is no data to be read from
 .I rb
-buffer contains less
-.B elements
-than requested by
-.IR count .
-Note, this is not an actual error, and will not happen when function returns -1.
+immediately.
 .TP
 .B ECANCELED
 .BR rb_stop (3)
