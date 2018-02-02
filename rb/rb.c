@@ -687,7 +687,7 @@ struct rb *rb_new
          * and return, as we don't need to init pthread elements.
          */
 
-        flags |= O_NONBLOCK;
+        rb->flags |= O_NONBLOCK;
         return rb;
     }
 
