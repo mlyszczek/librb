@@ -1039,6 +1039,7 @@ size_t rb_discard
     }
 #endif
 
+    return count;
 }
 
 

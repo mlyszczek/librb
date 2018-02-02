@@ -483,14 +483,14 @@ static void discard(void)
 #endif
         rb = rb_new(8, 1, 0);
         rb_write(rb, s, 6);
-        rb_discard(rb, 3);
+        mt_fail(rb_discard(rb, 3) == 3);
         rb_read(rb, d, 3);
         mt_fok(memcmp(d, "345", 3));
         rb_clear(rb, 0);
 
         rb_write(rb, s, 6);
         rb_read(rb, d, 2);
-        rb_discard(rb, 2);
+        mt_fail(rb_discard(rb, 2) == 2);
         rb_read(rb, d, 2);
         mt_fok(memcmp(d, "45", 2));
         rb_clear(rb, 0);
@@ -499,7 +499,7 @@ static void discard(void)
         rb_write(rb, s, 7);
         rb_read(rb, d, 5);
         rb_write(rb, s, 5);
-        rb_discard(rb, 3);
+        mt_fail(rb_discard(rb, 3) == 3);
         rb_read(rb, d, 3);
         mt_fok(memcmp(d, "123", 3));
         rb_clear(rb, 0);
@@ -507,7 +507,7 @@ static void discard(void)
         rb_write(rb, s, 7);
         rb_read(rb, d, 5);
         rb_write(rb, s, 5);
-        rb_discard(rb, 2);
+        mt_fail(rb_discard(rb, 2) == 2);
         rb_read(rb, d, 3);
         mt_fok(memcmp(d, "012", 3));
         rb_clear(rb, 0);
@@ -515,10 +515,13 @@ static void discard(void)
         rb_write(rb, s, 7);
         rb_read(rb, d, 5);
         rb_write(rb, s, 5);
-        rb_discard(rb, 4);
+        mt_fail(rb_discard(rb, 4) == 4);
         rb_read(rb, d, 3);
         mt_fok(memcmp(d, "234", 3));
         rb_clear(rb, 0);
+
+        rb_write(rb, s, 3);
+        mt_fail(rb_discard(rb, 10) == 3);
 
         rb_destroy(rb);
     }
