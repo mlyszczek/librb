@@ -745,7 +745,6 @@ error_data:
     pthread_mutex_destroy(&rb->lock);
 error_lock:
     errno = e;
-error:
     free(rb->buffer);
     free(rb);
 
