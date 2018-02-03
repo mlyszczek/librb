@@ -38,7 +38,7 @@ int rb_destroy(struct rb *);
 int rb_stop(struct rb *);
 size_t rb_discard(struct rb *, size_t);
 const char *rb_version(char *, char *, char *);
-size_t rb_count(const struct rb *);
-size_t rb_space(const struct rb *);
+long rb_count(struct rb *);
+long rb_space(struct rb *);
 
 #endif

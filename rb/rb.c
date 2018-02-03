@@ -90,6 +90,36 @@ struct rb
 
 
 /* ==========================================================================
+    Calculates number of elements in ring buffer.  ns stands for not safe as
+    in there are no checks.
+   ========================================================================== */
+
+
+static size_t rb_count_ns
+(
+    const struct rb  *rb  /* rb object */
+)
+{
+    return (rb->head - rb->tail) & (rb->count - 1);
+}
+
+
+/* ==========================================================================
+    Calculates how many elements can be pushed into ring buffer.   ns stands
+    for nos safe as in there are no checks.
+   ========================================================================== */
+
+
+static size_t rb_space_ns
+(
+    const struct rb  *rb  /* rb object */
+)
+{
+    return (rb->tail - (rb->head + 1)) & (rb->count - 1);
+}
+
+
+/* ==========================================================================
     Calculates number of elements in ring buffer until  the  end  of  buffer
     memory.  If elements don't overlap memory, function acts  like  rb_count
    ========================================================================== */
@@ -174,7 +204,7 @@ static long rb_recvs
     unsigned char*  buf;      /* buffer treated as unsigned char type */
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
-    if (count > (rbcount = rb_count(rb)))
+    if (count > (rbcount = rb_count_ns(rb)))
     {
         /*
          * Caller requested more data then is available, adjust count
@@ -271,7 +301,7 @@ static long rb_recvt
 
         pthread_mutex_lock(&rb->lock);
 
-        while (rb_count(rb) == 0 && rb->force_exit == 0)
+        while (rb_count_ns(rb) == 0 && rb->force_exit == 0)
         {
             struct timespec ts;  /* timeout for pthread_cond_timedwait */
             /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
@@ -390,7 +420,7 @@ static long rb_sends
 
     (void)flags;
 
-    if (count > (rbspace = rb_space(rb)))
+    if (count > (rbspace = rb_space_ns(rb)))
     {
         /*
          * Caller wants to store more data then there is space available
@@ -475,7 +505,7 @@ long rb_sendt
 
         pthread_mutex_lock(&rb->lock);
 
-        while (rb_space(rb) == 0 && rb->force_exit == 0)
+        while (rb_space_ns(rb) == 0 && rb->force_exit == 0)
         {
             struct timespec ts;  /* timeout for pthread_cond_timedwait */
             /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
@@ -1015,7 +1045,7 @@ size_t rb_discard
 #endif
 
     cnte = rb_count_end(rb);
-    rbcount = rb_count(rb);
+    rbcount = rb_count_ns(rb);
 
     if (count > rbcount)
     {
@@ -1072,28 +1102,74 @@ const char* rb_version
 
 
 /* ==========================================================================
-    Calculates number of elements in ring buffer
+    Returns number of elements in buffer.
    ========================================================================== */
 
 
-size_t rb_count
+long rb_count
 (
-    const struct rb  *rb  /* rb object */
+    struct rb  *rb      /* rb object */
 )
 {
-    return (rb->head - rb->tail) & (rb->count - 1);
+    size_t      count;  /* number of elements in buffer */
+    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+    VALID(EINVAL, rb);
+    VALID(EINVAL, rb->buffer);
+
+#if ENABLE_THREADS
+    if ((rb->flags & O_NONBLOCK) == 0)
+    {
+        pthread_mutex_lock(&rb->lock);
+    }
+#endif
+
+    count = rb_count_ns(rb);
+
+#if ENABLE_THREADS
+    if ((rb->flags & O_NONBLOCK) == 0)
+    {
+        pthread_mutex_unlock(&rb->lock);
+    }
+#endif
+
+    return (long)count;
 }
 
 
 /* ==========================================================================
-    Calculates how many elements can be pushed into ring buffer
+    Return number of free space in buffer
    ========================================================================== */
 
 
-size_t rb_space
+long rb_space
 (
-    const struct rb  *rb  /* rb object */
+    struct rb  *rb      /* rb object */
 )
 {
-    return (rb->tail - (rb->head + 1)) & (rb->count - 1);
+    size_t      space;  /* number of free slots in buffer */
+    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+    VALID(EINVAL, rb);
+    VALID(EINVAL, rb->buffer);
+
+#if ENABLE_THREADS
+    if ((rb->flags & O_NONBLOCK) == 0)
+    {
+        pthread_mutex_lock(&rb->lock);
+    }
+#endif
+
+    space = rb_space_ns(rb);
+
+#if ENABLE_THREADS
+    if ((rb->flags & O_NONBLOCK) == 0)
+    {
+        pthread_mutex_unlock(&rb->lock);
+    }
+#endif
+
+    return (long)space;
 }
