@@ -20,12 +20,12 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/time.h>
 
 #if ENABLE_THREADS
+#   include <fcntl.h>
 #   include <pthread.h>
 #   include <sys/socket.h>
-#   include <fcntl.h>
+#   include <sys/time.h>
 #endif
 
 #include "rb.h"
