@@ -583,7 +583,11 @@ static void einval(void)
     mt_ferr(rb_discard(NULL, 1), EINVAL);
     mt_ferr(rb_count(NULL), EINVAL);
     mt_ferr(rb_space(NULL), EINVAL);
+#if ENABLE_THREADS
     mt_ferr(rb_stop(NULL), EINVAL);
+#else
+    mt_ferr(rb_stop(NULL), ENOSYS);
+#endif
     rb_destroy(rb);
 
 }
