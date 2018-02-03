@@ -1023,7 +1023,7 @@ int rb_stop
    ========================================================================== */
 
 
-size_t rb_discard
+long rb_discard
 (
     struct rb  *rb,       /* rb object */
     size_t      count     /* number of elements to discard */
@@ -1069,7 +1069,7 @@ size_t rb_discard
     }
 #endif
 
-    return count;
+    return (long)count;
 }
 
 

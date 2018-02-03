@@ -36,7 +36,7 @@ long rb_send(struct rb *, const void *, size_t, unsigned long);
 int rb_clear(struct rb *, int);
 int rb_destroy(struct rb *);
 int rb_stop(struct rb *);
-size_t rb_discard(struct rb *, size_t);
+long rb_discard(struct rb *, size_t);
 const char *rb_version(char *, char *, char *);
 long rb_count(struct rb *);
 long rb_space(struct rb *);

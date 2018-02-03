@@ -342,15 +342,6 @@ static void singlethread_eagain(void)
 
 static void invalid_read_write(void)
 {
-    struct rb *rb;
-    int v;
-
-    rb = rb_new(4, 1, 0);
-    mt_ferr(rb_read(NULL, &v, 1), EINVAL);
-    mt_ferr(rb_read(rb, NULL, 1), EINVAL);
-    mt_ferr(rb_write(NULL, &v, 1), EINVAL);
-    mt_ferr(rb_write(rb, NULL, 1), EINVAL);
-    rb_destroy(rb);
 }
 
 static void invalid_stop(void)
@@ -574,6 +565,28 @@ static void bad_count_value(void)
     mt_fail(rb == NULL);
 }
 
+static void einval(void)
+{
+    struct rb *rb;
+    int v;
+
+    rb = rb_new(4, 1, 0);
+    mt_ferr(rb_read(NULL, &v, 1), EINVAL);
+    mt_ferr(rb_read(rb, NULL, 1), EINVAL);
+    mt_ferr(rb_write(NULL, &v, 1), EINVAL);
+    mt_ferr(rb_write(rb, NULL, 1), EINVAL);
+    mt_ferr(rb_recv(NULL, &v, 1, 0), EINVAL);
+    mt_ferr(rb_recv(rb, NULL, 1, 0), EINVAL);
+    mt_ferr(rb_send(NULL, &v, 1, 0), EINVAL);
+    mt_ferr(rb_send(rb, NULL, 1, 0), EINVAL);
+    mt_ferr(rb_destroy(NULL), EINVAL);
+    mt_ferr(rb_discard(NULL, 1), EINVAL);
+    mt_ferr(rb_count(NULL), EINVAL);
+    mt_ferr(rb_space(NULL), EINVAL);
+    mt_ferr(rb_stop(NULL), EINVAL);
+    rb_destroy(rb);
+
+}
 
 int main(void)
 {
@@ -627,6 +640,7 @@ int main(void)
     mt_run(singlethread_eagain);
     mt_run(discard);
     mt_run(count_and_space);
+    mt_run(einval);
 
 #if ENABLE_THREADS
     mt_run(multithread_eagain);
