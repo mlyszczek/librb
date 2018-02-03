@@ -604,11 +604,15 @@ long rb_sendt
    ========================================================================== */
 
 
-static void *rb_stop_thread(void *arg)
+static void *rb_stop_thread
+(
+    void       *arg       /* disguised rb object */
+)
 {
     struct rb  *rb;       /* ring buffer object */
     int         stopped;  /* copy of rb->stopped_all */
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
 
     rb = arg;
     stopped = 0;
@@ -672,6 +676,7 @@ struct rb *rb_new
 #endif
     struct rb     *rb;           /* pointer to newly created buffer */
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
 
 #if ENABLE_THREADS == 0
     /*
