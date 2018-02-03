@@ -527,6 +527,44 @@ static void discard(void)
     }
 }
 
+static void count_and_space(void)
+{
+    char d[4];
+    struct rb  *rb;
+
+    rb = rb_new(16, 1, 0);
+
+    mt_fail(rb_space(rb) == 15);
+    mt_fail(rb_count(rb) == 0);
+
+    rb_write(rb, "123", 3);
+
+    mt_fail(rb_space(rb) == 12);
+    mt_fail(rb_count(rb) == 3);
+
+    rb_write(rb, "1234567", 7);
+
+    mt_fail(rb_space(rb) == 5);
+    mt_fail(rb_count(rb) == 10);
+
+    rb_read(rb, d, 4);
+
+    mt_fail(rb_space(rb) == 9);
+    mt_fail(rb_count(rb) == 6);
+
+    rb_discard(rb, 5);
+
+    mt_fail(rb_space(rb) == 14);
+    mt_fail(rb_count(rb) == 1);
+
+    rb_discard(rb, 999);
+
+    mt_fail(rb_space(rb) == 15);
+    mt_fail(rb_count(rb) == 0);
+
+    rb_destroy(rb);
+}
+
 static void bad_count_value(void)
 {
     struct rb *rb;
@@ -588,6 +626,7 @@ int main(void)
     mt_run(nonblocking_flag);
     mt_run(singlethread_eagain);
     mt_run(discard);
+    mt_run(count_and_space);
 
 #if ENABLE_THREADS
     mt_run(multithread_eagain);

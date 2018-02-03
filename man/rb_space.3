@@ -8,9 +8,9 @@
 .PP
 .BI "#include <librb.h>"
 .PP
-.BI "size_t rb_count(struct rb *" rb ");"
+.BI "long rb_count(struct rb *" rb ");"
 .br
-.BI "size_t rb_space(struct rb *" rb ");"
+.BI "long rb_space(struct rb *" rb ");"
 .SH RETURN VALUES
 .PP
 .BR rb_count (3)
@@ -21,6 +21,13 @@ that are currently stored in buffer, and
 returns number of how many
 .B elements
 you can put on the buffer.
+.SH ERRORS
+.PP
+.TP
+.B EINVAL
+Passed
+.I rb
+object is invalid.
 .SH SEE ALSO
 .PP
 .BR rb_overview (7),
