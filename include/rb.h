@@ -24,9 +24,6 @@
 #define O_MULTITHREAD 0x00010000L
 struct rb;
 
-typedef long (*rb_send_f)(struct rb *, const void *, size_t , unsigned long);
-typedef long (*rb_recv_f)(struct rb *, void *, size_t, unsigned long);
-
 struct rb *rb_new(size_t, size_t, unsigned long);
 long rb_read(struct rb *, void *, size_t);
 long rb_recv(struct rb *, void *, size_t, unsigned long);
