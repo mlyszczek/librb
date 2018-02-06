@@ -17,7 +17,6 @@
 #include "mtest.h"
 
 #include <sys/types.h>
-#include <sys/syscall.h>
 #include <unistd.h>
 struct tdata
 {
