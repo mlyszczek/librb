@@ -21,7 +21,7 @@
 #define MSG_DONTWAIT 0x40
 #endif
 
-#define O_MULTITHREAD 0x00010000L
+#define O_MULTITHREAD 0x10000000L
 struct rb;
 
 struct rb *rb_new(size_t, size_t, unsigned long);
