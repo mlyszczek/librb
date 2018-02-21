@@ -558,16 +558,31 @@ static void count_and_space(void)
 static void bad_count_value(void)
 {
     struct rb *rb;
+    unsigned char  rbs[10240];
 
     rb = rb_new(6, 1, 0);
     mt_fail(errno == EINVAL);
     mt_fail(rb == NULL);
+    rb = rb_init(6, 1, 0, rbs);
+    mt_fail(errno == EINVAL);
+    mt_fail(rb == NULL);
+}
+
+static void enomem(void)
+{
+    struct rb  *rb;
+
+    rb = rb_new((size_t)1 << ((sizeof(size_t) * 8) - 1), 1, 0);
+    mt_fail(errno = ENOMEM);
+    mt_fail(rb == NULL);
+    mt_ferr(rb_destroy(rb), EINVAL);
 }
 
 static void einval(void)
 {
     struct rb *rb;
     int v;
+    unsigned char  rbs[10240];
 
     rb = rb_new(4, 1, 0);
     mt_ferr(rb_read(NULL, &v, 1), EINVAL);
@@ -588,7 +603,62 @@ static void einval(void)
     mt_ferr(rb_stop(NULL), ENOSYS);
 #endif
     rb_destroy(rb);
+}
 
+static void stack_init(void)
+{
+    struct msg
+    {
+        int a;
+        int b;
+    } m;
+
+    unsigned char  buf[rb_header_size() + 4 * sizeof(m)];
+    struct rb  *rb;
+
+    mt_assert(rb = rb_init(4, sizeof(m), 0, buf));
+    m.a = 1;
+    m.b = 2;
+    rb_write(rb, &m, 1);
+    m.a = 4;
+    m.b = 3;
+    rb_write(rb, &m, 1);
+    m.a = 8;
+    m.b = 7;
+    rb_write(rb, &m, 1);
+    mt_fail(rb_space(rb) == 0);
+    rb_read(rb, &m, 1);
+    mt_fail(m.a == 1);
+    mt_fail(m.b == 2);
+    rb_read(rb, &m, 1);
+    mt_fail(m.a == 4);
+    mt_fail(m.b == 3);
+    rb_read(rb, &m, 1);
+    mt_fail(m.a == 8);
+    mt_fail(m.b == 7);
+    rb_cleanup(rb);
+
+    mt_assert(rb = rb_init(4, sizeof(m), O_MULTITHREAD, buf));
+    m.a = 1;
+    m.b = 2;
+    rb_write(rb, &m, 1);
+    m.a = 4;
+    m.b = 3;
+    rb_write(rb, &m, 1);
+    m.a = 8;
+    m.b = 7;
+    rb_write(rb, &m, 1);
+    mt_fail(rb_space(rb) == 0);
+    rb_read(rb, &m, 1);
+    mt_fail(m.a == 1);
+    mt_fail(m.b == 2);
+    rb_read(rb, &m, 1);
+    mt_fail(m.a == 4);
+    mt_fail(m.b == 3);
+    rb_read(rb, &m, 1);
+    mt_fail(m.a == 8);
+    mt_fail(m.b == 7);
+    rb_cleanup(rb);
 }
 
 int main(void)
@@ -644,6 +714,8 @@ int main(void)
     mt_run(discard);
     mt_run(count_and_space);
     mt_run(einval);
+    mt_run(enomem);
+    mt_run(stack_init);
 
 #if ENABLE_THREADS
     mt_run(multithread_eagain);

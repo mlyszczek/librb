@@ -1070,10 +1070,13 @@ int rb_cleanup
     VALID(EINVAL, rb);
 
 #if ENABLE_THREADS
-    return rb_cleanup_p(rb);
-#else
-    return 0;
+    if (rb->flags & O_MULTITHREAD)
+    {
+        return rb_cleanup_p(rb);
+    }
 #endif
+
+    return 0;
 }
 
 
