@@ -642,6 +642,110 @@ static void *rb_stop_thread
 
 
 /* ==========================================================================
+    Initializes rb buffer to known state. Does not initialize rb->buffer
+   ========================================================================== */
+
+
+static int rb_init_p
+(
+    struct rb     *rb,           /* rb object to init */
+    size_t         count,        /* number of elements that buffer can hold */
+    size_t         object_size,  /* size, in bytes, of a single object */
+    unsigned long  flags         /* flags to create buffer with */
+)
+{
+#if ENABLE_THREADS
+    int            e;            /* errno value from pthread function */
+#endif
+
+    VALID(EINVAL, rb_is_power_of_two(count) == 1);
+
+    rb->head = 0;
+    rb->tail = 0;
+    rb->count = count;
+    rb->object_size = object_size;
+    rb->flags = flags;
+
+#if ENABLE_THREADS == 0
+    /*
+     * multithreaded operations are not allowed when library is compiled
+     * without threads
+     */
+    VALIDR(ENOSYS, NULL, (flags & O_MULTITHREAD) == 0);
+
+    return 0;
+#else
+    if ((flags & O_MULTITHREAD) == 0)
+    {
+        /*
+         * when working in non multi-threaded mode, force O_NONBLOCK flag,
+         * and return, as we don't need to init pthread elements.
+         */
+
+        rb->flags |= O_NONBLOCK;
+        return 0;
+    }
+
+    /*
+     * Multithreaded environment
+     */
+
+    rb->stopped_all = -1;
+    rb->force_exit = 0;
+
+    VALIDGO(e, error_lock, (e = pthread_mutex_init(&rb->lock, NULL)) == 0);
+    VALIDGO(e, error_data, (e = pthread_cond_init(&rb->wait_data, NULL)) == 0);
+    VALIDGO(e, error_room, (e = pthread_cond_init(&rb->wait_room, NULL)) == 0);
+
+    return 0;
+
+error_room:
+    pthread_cond_destroy(&rb->wait_data);
+error_data:
+    pthread_mutex_destroy(&rb->lock);
+error_lock:
+    errno = e;
+    return -1;
+#endif
+}
+
+
+/* ==========================================================================
+    Cleans up resources allocated by pthread stuff
+   ========================================================================== */
+
+
+static int rb_cleanup_p
+(
+    struct rb  *rb  /* rb object */
+)
+{
+    /*
+     * check if user called rb_stop, if not (rb->stopped will be -1), we trust
+     * caller made sure all threads are stopped before calling destroy.
+     */
+
+    pthread_mutex_lock(&rb->lock);
+    if (rb->stopped_all == 0)
+    {
+        rb->stopped_all = 1;
+        pthread_mutex_unlock(&rb->lock);
+        pthread_join(rb->stop_thread, NULL);
+    }
+    else
+    {
+        pthread_mutex_unlock(&rb->lock);
+    }
+
+    pthread_cond_destroy(&rb->wait_data);
+    pthread_cond_destroy(&rb->wait_room);
+    pthread_mutex_destroy(&rb->lock);
+
+    return 0;
+}
+
+
+/* ==========================================================================
                                         __     __ _
                          ____   __  __ / /_   / /(_)_____
                         / __ \ / / / // __ \ / // // ___/
@@ -658,6 +762,38 @@ static void *rb_stop_thread
 
 
 /* ==========================================================================
+    Initializes new ring buffer object like rb_new but does not use dynamic
+    memory allocation, but uses memory pointer by mem.
+   ========================================================================== */
+
+
+struct rb *rb_init
+(
+    size_t         count,        /* number of elements that buffer can hold */
+    size_t         object_size,  /* size, in bytes, of a single object */
+    unsigned long  flags,        /* flags to create buffer with */
+    void          *mem           /* memory area to use for rb object */
+)
+{
+    struct rb     *rb;           /* treat passed mem as rb object */
+    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+    VALIDR(EINVAL, NULL, mem);
+
+    rb = mem;
+    rb->buffer = (unsigned char *)rb + sizeof(*rb);
+
+    if (rb_init_p(rb, count, object_size, flags) == 0)
+    {
+        return rb;
+    }
+
+    return NULL;
+}
+
+
+/* ==========================================================================
     Initializes ring buffer and allocates all  necessary  resources.   Newly
     created rb  will  returned  as  a  pointer.   In  case  of  an  function
     error, NULL will be returned
@@ -671,27 +807,9 @@ struct rb *rb_new
     unsigned long  flags         /* flags to create buffer with */
 )
 {
-#if ENABLE_THREADS
-    int            e;            /* holds errno value */
-#endif
     struct rb     *rb;           /* pointer to newly created buffer */
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
-
-#if ENABLE_THREADS == 0
-    /*
-     * multithreaded operations are not allowed when library is compiled
-     * without threads
-     */
-
-    VALIDR(ENOSYS, NULL, (flags & O_MULTITHREAD) == 0);
-#endif
-
-    if (rb_is_power_of_two(count) == 0)
-    {
-        errno = EINVAL;
-        return NULL;
-    }
 
     if ((rb = malloc(sizeof(*rb))) == NULL)
     {
@@ -706,50 +824,14 @@ struct rb *rb_new
         return NULL;
     }
 
-    rb->head = 0;
-    rb->tail = 0;
-    rb->count = count;
-    rb->object_size = object_size;
-    rb->flags = flags;
-
-#if ENABLE_THREADS == 0
-    return rb;
-#else
-    if ((flags & O_MULTITHREAD) == 0)
+    if (rb_init_p(rb, count, object_size, flags) == 0)
     {
-        /*
-         * when working in non multi-threaded mode, force O_NONBLOCK flag,
-         * and return, as we don't need to init pthread elements.
-         */
-
-        rb->flags |= O_NONBLOCK;
         return rb;
     }
 
-    /*
-     * Multithreaded environment
-     */
-
-    rb->stopped_all = -1;
-    rb->force_exit = 0;
-
-    VALIDGO(e, error_lock, (e = pthread_mutex_init(&rb->lock, NULL)) == 0);
-    VALIDGO(e, error_data, (e = pthread_cond_init(&rb->wait_data, NULL)) == 0);
-    VALIDGO(e, error_room, (e = pthread_cond_init(&rb->wait_room, NULL)) == 0);
-
-    return rb;
-
-error_room:
-    pthread_cond_destroy(&rb->wait_data);
-error_data:
-    pthread_mutex_destroy(&rb->lock);
-error_lock:
-    errno = e;
     free(rb->buffer);
     free(rb);
-
     return NULL;
-#endif
 }
 
 
@@ -939,17 +1021,22 @@ int rb_clear
 
 /* ==========================================================================
     Frees resources allocated by rb_new. Due to pthread nature this function
-    should be called *only* when no other threads are working on rb object.
+    should be called *only*  when no other threads are working on rb object,
+    and rb object was allocated with rb_new.
    ========================================================================== */
 
 
 int rb_destroy
 (
-    struct rb *rb  /* rb object */
+    struct rb  *rb  /* rb object */
 )
 {
+    int         e;  /* error code to return */
+    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
     VALID(EINVAL, rb);
     VALID(EINVAL, rb->buffer);
+    e = 0;
 
 #if ENABLE_THREADS
     if ((rb->flags & O_MULTITHREAD) == 0)
@@ -959,31 +1046,34 @@ int rb_destroy
         return 0;
     }
 
-    /*
-     * check if user called rb_stop, if not (rb->stopped will be -1), we trust
-     * caller made sure all threads are stopped before calling destroy.
-     */
-
-    pthread_mutex_lock(&rb->lock);
-    if (rb->stopped_all == 0)
-    {
-        rb->stopped_all = 1;
-        pthread_mutex_unlock(&rb->lock);
-        pthread_join(rb->stop_thread, NULL);
-    }
-    else
-    {
-        pthread_mutex_unlock(&rb->lock);
-    }
-
-    pthread_cond_destroy(&rb->wait_data);
-    pthread_cond_destroy(&rb->wait_room);
-    pthread_mutex_destroy(&rb->lock);
+    e = rb_cleanup_p(rb);
 #endif
 
     free(rb->buffer);
     free(rb);
+
+    return e;
+}
+
+
+/* ==========================================================================
+    Same as rb_destroy but should be caled only when rb object was allocated
+    with rb_init function
+   ========================================================================== */
+
+
+int rb_cleanup
+(
+    struct rb  *rb  /* rb object */
+)
+{
+    VALID(EINVAL, rb);
+
+#if ENABLE_THREADS
+    return rb_cleanup_p(rb);
+#else
     return 0;
+#endif
 }
 
 
@@ -1176,4 +1266,16 @@ long rb_space
 #endif
 
     return (long)space;
+}
+
+
+/* ==========================================================================
+    Return size of rb struct for current implementation.  This size  may  be
+    different depending on compilation flags and/or architecture
+   ========================================================================== */
+
+
+size_t rb_header_size(void)
+{
+    return sizeof(struct rb);
 }
