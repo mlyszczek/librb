@@ -25,6 +25,7 @@
 struct rb;
 
 struct rb *rb_new(size_t, size_t, unsigned long);
+struct rb *rb_init(size_t, size_t, unsigned long, void *);
 long rb_read(struct rb *, void *, size_t);
 long rb_recv(struct rb *, void *, size_t, unsigned long);
 long rb_write(struct rb *, const void *, size_t);
@@ -32,10 +33,12 @@ long rb_send(struct rb *, const void *, size_t, unsigned long);
 
 int rb_clear(struct rb *, int);
 int rb_destroy(struct rb *);
+int rb_cleanup(struct rb *);
 int rb_stop(struct rb *);
 long rb_discard(struct rb *, size_t);
 const char *rb_version(char *, char *, char *);
 long rb_count(struct rb *);
 long rb_space(struct rb *);
+size_t rb_header_size(void);
 
 #endif
