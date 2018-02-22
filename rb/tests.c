@@ -638,6 +638,7 @@ static void stack_init(void)
     mt_fail(m.b == 7);
     rb_cleanup(rb);
 
+#if ENABLE_THREADS
     mt_assert(rb = rb_init(4, sizeof(m), O_MULTITHREAD, buf));
     m.a = 1;
     m.b = 2;
@@ -659,6 +660,7 @@ static void stack_init(void)
     mt_fail(m.a == 8);
     mt_fail(m.b == 7);
     rb_cleanup(rb);
+#endif
 }
 
 int main(void)
