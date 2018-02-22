@@ -716,7 +716,7 @@ int main(void)
     mt_run(discard);
     mt_run(count_and_space);
     mt_run(einval);
-    mt_run(enomem);
+    /* mt_run(enomem); */
     mt_run(stack_init);
 
 #if ENABLE_THREADS
