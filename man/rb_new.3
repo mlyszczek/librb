@@ -1,14 +1,17 @@
 .TH "rb_new" "3" " 9 February 2018 (v1.0.0)" "bofc.pl"
 .SH NAME
 .PP
-.B rb_new
-- create new ring buffer
+.B rb_new, rb_init
+- initializes new ring buffer
 .SH SYNOPSIS
 .PP
 .BI "#include <librb.h>"
 .PP
 .BI "struct rb *rb_new(size_t " count ", size_t " object_size ", \
 unsigned long " flags ");"
+.br
+.BI "struct rb *rb_init(size_t " count ", size_t " object_size ", \
+unsigned long " flags ", void *" mem ");"
 .SH DESCRIPTION
 .PP
 .BR rb_new (3)
@@ -49,7 +52,26 @@ should be a size of an object, ring buffer will hold.
 You should not write nor read objects of different size than created one, as
 this will lead to undefined behaviour or even crashes.
 .PP
-Function can accept following
+.BR rb_init (3)
+can be used if dynamic allocation is not supported or it needs to be avoided.
+Functions works same as
+.BR rb_new (3)
+but does not perform any allocation and user is responsible to pass pointer to
+.I mem
+that is big enough to hold
+.B rb
+header and any data that could be inserted into buffer.
+Information about header size can be read from
+.BR rb_header_size (3)
+function, and data length can be calculated with formula
+.RI ( count
+*
+.IR object_size ).
+.I mem
+can be whatever continous memory like array on stack, or some custom allocation.
+Check example to see how to use it in practice.
+.PP
+Functions can accept following
 .I flags
 .TP
 .B O_NONBLOCK
@@ -95,10 +117,50 @@ couldn't allocate memory for given
 .I count
 and
 .I object_size
+.SH EXAMPLES
+.PP
+.EX
+.PP
+    #include <rb.h>
+    #include <stdio.h>
+
+    struct msg
+    {
+        int a;
+        int b;
+    };
+
+    int main(void)
+    {
+        struct msg msg;
+        struct rb *rb;
+        /* allocate memory on stack for rb header and 8 elements of msg */
+        unsigned char buf[rb_header_size() + 8 * sizeof(msg)];
+
+        /* initialize ring buffer with custom allocated memory */
+        rb = rb_init(8, sizeof(msg), 0, buf);
+
+        /* rb can be now accessed as usuall */
+
+        /* when work on rb is done, it needs to be cleaned up */
+        rb_cleanup(rb);
+
+        return 0;
+    }
+.EE
+.SH NOTES
+.PP
+Algorithm used in this buffer requires one element to be always empty to
+distinguish situations when buffer is full or empty and as such,
+.B rb
+object can effectively hold
+.I count
+- 1 elements in the buffer.
 .SH SEE ALSO
 .PP
 .BR rb_overview (7),
 .BR rb_destroy (3),
+.BR rb_cleanup (3),
 .BR rb_discard (3),
 .BR rb_stop (3),
 .BR rb_read (3),
@@ -108,4 +170,5 @@ and
 .BR rb_clear (3),
 .BR rb_count (3),
 .BR rb_space (3),
+.BR rb_header_size (3),
 .BR rb_version (3)

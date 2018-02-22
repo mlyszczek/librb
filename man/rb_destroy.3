@@ -1,8 +1,9 @@
 .TH "rb_destroy" "3" " 9 February 2018 (v1.0.0)" "bofc.pl"
 .SH NAME
 .PP
-.B rb_destroy,
-.B rb_stop
+.BR rb_stop ,
+.BR rb_destroy ,
+.B rb_cleanup
 - functions to stop any locked threads in rb functions and free resources
 allocated by
 .BR rb_new (3)
@@ -11,6 +12,8 @@ allocated by
 .BI "int rb_stop(struct rb *" rb ");"
 .br
 .BI "int rb_destroy(struct rb *" rb ");"
+.br
+.BI "int rb_cleanup(struct rb *" rb ");"
 .SH DESCRIPTION
 .PP
 Function
@@ -40,13 +43,23 @@ first.
 Passing same
 .I rb
 object twice, will result in segmentation fault.
+.PP
+Function
+.BR rb_cleanup (3)
+works same as
+.BR rb_destroy (3)
+but should be called only on object initialized with
+.BR rb_init (3)
+function.
 .SH NOTES
 .PP
 Due to nature of pthread, you must be sure that no threads are calling
 any functions from
 .B librb
 before calling
-.BR rb_destroy (3).
+.BR rb_destroy (3)
+or
+.BR rb_cleanup (3).
 Failing to do so, will lead to deadlocks or crashes sooner or later.
 .PP
 If you cannot stop threads by yourself before calling
@@ -120,6 +133,7 @@ is invalid (null).
 .PP
 .BR rb_overview (7),
 .BR rb_new (3),
+.BR rb_init (3),
 .BR rb_read (3),
 .BR rb_discard (3),
 .BR rb_recv (3),
@@ -128,4 +142,5 @@ is invalid (null).
 .BR rb_clear (3),
 .BR rb_count (3),
 .BR rb_space (3),
+.BR rb_header_size (3),
 .BR rb_version (3)

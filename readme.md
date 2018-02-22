@@ -21,6 +21,10 @@ some more functions, it can be operated using 4 basic functions
 
 Additional functions are:
 
+  * [rb_init](http://librb.kurwinet.pl/manuals/rb_init.3.html) -
+    initializes new ring buffer but does not use dynamic allocation
+  * [rb_cleanup](http://librb.kurwinet.pl/manuals/rb_cleanup.3.html) -
+    cleans up whatever has been initialized with rb_init
   * [rb_recv](http://librb.kurwinet.pl/manuals/rb_recv.3.html) -
     reads from the ring buffer but also accepts flags
   * [rb_send](http://librb.kurwinet.pl/manuals/rb_send.3.html) -
@@ -35,6 +39,10 @@ Additional functions are:
     forces all threads to exit **rb_write** and **rb_read** functions
   * [rb_discard](http://librb.kurwinet.pl/manuals/rb_discard.3.html) -
     allows to quickly discard part of buffers data
+  * [rb_header_size](http://librb.kurwinet.pl/manuals/rb_header_size.3.html) -
+    get size of internal struct with buffer information
+  * [rb_version](http://librb.kurwinet.pl/manuals/rb_version.3.html) -
+    get version of library that is used
 
 Dependencies
 ============

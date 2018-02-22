@@ -25,11 +25,17 @@ size_t " count ");"
 .PP
 Additinal functions are provided for better control over buffer
 .PP
+.BI "struct rb *rb_init(size_t " count ", size_t " object_size ", \
+unsigned long " flags ", void *" mem ");"
+.br
+.BI "int rb_cleanup(struct rb *" rb ");"
+.br
 .BI "long rb_recv(struct rb *" rb ", void *" buffer ", size_t " count ", \
 unsigned long " flags ");"
 .br
 .BI "long rb_send(struct rb *" rb ", const void *" buffer ", \
 size_t " count ", unsigned long " flags ");"
+.br
 .BI "int rb_clear(struct rb *" rb ", int " clear ");"
 .br
 .BI "long rb_count(struct rb *" rb ");"
@@ -37,6 +43,8 @@ size_t " count ", unsigned long " flags ");"
 .BI "long rb_space(struct rb *" rb ");"
 .br
 .BI "int rb_stop(struct rb *" rb ");"
+.br
+.B size_t rb_header_size(void);
 .br
 .BI "const char *rb_version(char *" major ", char *" minor ", char *" patch ");"
 .SH DESCRIPTION
@@ -63,6 +71,10 @@ available.
 This behaviour can be altered to work in non-blocking mode, so calls from
 read and write will return immediately when there are not enough resources.
 malloc and free are called only in new and destory functions.
+You can also use buffer and provide own
+.I mem
+pointer to memory that buffer should work on (like so array on stack), in such
+case there will be no dynamic allocations performed by library.
 .PP
 As this library is focused on speed, user can create buffer with only power of
 two count (n^2).
@@ -121,7 +133,9 @@ Please note, that example is missing error handling for simplicity.
 .PP
 .BR rb_overview (7),
 .BR rb_new (3),
+.BR rb_init (3),
 .BR rb_destroy (3),
+.BR rb_cleanup (3),
 .BR rb_discard (3),
 .BR rb_stop (3),
 .BR rb_read (3),
@@ -131,4 +145,5 @@ Please note, that example is missing error handling for simplicity.
 .BR rb_clear (3),
 .BR rb_count (3),
 .BR rb_space (3),
+.BR rb_header_size (3),
 .BR rb_version (3)
