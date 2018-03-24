@@ -117,8 +117,14 @@ Please note, that example is missing error handling for simplicity.
 
             bytes_read = rb_read(rb, buf, 8);
 
-            if (bytes_read == 0) /* nothing left to read */
-                break;
+            if (bytes_read == -1)
+            {
+                if (errno == EAGAIN) /* nothing left to read */
+                    break;
+
+                perror("read failed");
+                continue;
+            }
 
             printf("%s\\n", buf);
         }
