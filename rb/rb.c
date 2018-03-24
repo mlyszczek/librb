@@ -716,13 +716,13 @@ error_lock:
     Cleans up resources allocated by pthread stuff
    ========================================================================== */
 
+#if ENABLE_THREADS
 
 static int rb_cleanup_p
 (
     struct rb  *rb  /* rb object */
 )
 {
-#if ENABLE_THREADS
     /*
      * check if user called rb_stop, if not (rb->stopped will be -1), we trust
      * caller made sure all threads are stopped before calling destroy.
@@ -743,11 +743,11 @@ static int rb_cleanup_p
     pthread_cond_destroy(&rb->wait_data);
     pthread_cond_destroy(&rb->wait_room);
     pthread_mutex_destroy(&rb->lock);
-#endif
 
     return 0;
 }
 
+#endif
 
 /* ==========================================================================
                                         __     __ _
