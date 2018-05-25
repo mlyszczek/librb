@@ -1047,7 +1047,7 @@ int rb_destroy
     {
         free(rb->buffer);
         free(rb);
-        return 0;
+        return e;
     }
 
     e = rb_cleanup_p(rb);
