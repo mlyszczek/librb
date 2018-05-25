@@ -3,7 +3,7 @@ AM_INIT_AUTOMAKE([foreign])
 AC_PROG_CC
 AC_PROG_LIBTOOL
 AC_CONFIG_MACRO_DIR([m4])
-AC_CONFIG_FILES([Makefile rb/Makefile include/Makefile man/Makefile www/Makefile])
+AC_CONFIG_FILES([Makefile man/Makefile www/Makefile])
 AC_CONFIG_SRCDIR([configure.ac])
 AC_CONFIG_HEADERS([config.h])
 

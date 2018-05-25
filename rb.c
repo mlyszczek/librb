@@ -14,7 +14,9 @@
    ========================================================================== */
 
 
+#if HAVE_CONFIG_H
 #include "config.h"
+#endif
 
 #include <errno.h>
 #include <stddef.h>
@@ -714,13 +716,13 @@ error_lock:
     Cleans up resources allocated by pthread stuff
    ========================================================================== */
 
+#if ENABLE_THREADS
 
 static int rb_cleanup_p
 (
     struct rb  *rb  /* rb object */
 )
 {
-#if ENABLE_THREADS
     /*
      * check if user called rb_stop, if not (rb->stopped will be -1), we trust
      * caller made sure all threads are stopped before calling destroy.
@@ -741,11 +743,11 @@ static int rb_cleanup_p
     pthread_cond_destroy(&rb->wait_data);
     pthread_cond_destroy(&rb->wait_room);
     pthread_mutex_destroy(&rb->lock);
-#endif
 
     return 0;
 }
 
+#endif
 
 /* ==========================================================================
                                         __     __ _
@@ -1045,7 +1047,7 @@ int rb_destroy
     {
         free(rb->buffer);
         free(rb);
-        return 0;
+        return e;
     }
 
     e = rb_cleanup_p(rb);

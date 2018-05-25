@@ -35,3 +35,5 @@ tests.trs
 www/downloads.html
 www/manuals
 www/out
+*.la
+*.lo
