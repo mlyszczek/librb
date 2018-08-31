@@ -467,16 +467,18 @@ static long rb_sends
 
 
 /* ==========================================================================
-    Writes count data pointed by buffer in to rb.  Function will block until
-    count elements are stored into rb, unless blocking flag  is  set  to  1.
-    When rb is full and there is still data to write, caller thread will  be
-    put to sleep and will be waked up as soon as there is space in rb. count
-    can be any size, it can be much bigger than rb size, just keep  in  mind
-    if count is too big, time waiting for space might be significant.   When
-    blocking flag is set to 1, and there is less  space  in  rb  than  count
+    Writes count data pointed by buffer or fd into rb.  Function will  block
+    until count elements are stored into rb, unless blocking flag is set  to
+    1.  When rb is full and there is still data to write, caller thread will
+    be put to sleep and will be waked up as soon as there is  space  in  rb.
+    count can be any size, it can be much bigger than rb size, just keep  in
+    mind if count is too big, time waiting for space might  be  significant.
+    When blocking flag is set to 1, and there is less space in rb than count
     expects, function will copy as many elements as it can and  will  return
     with number of elements written to rb.   If  buffer  is  full,  function
     returns -1 and EAGAIN error.
+
+    Either buffer or fd can be set, never both!
    ========================================================================== */
 
 
@@ -486,6 +488,7 @@ long rb_sendt
 (
     struct rb*            rb,       /* rb object */
     const void*           buffer,   /* location of data to put into rb */
+    int                   fd,       /* file descriptor to read data from */
     size_t                count,    /* number of elements to put on the rb */
     unsigned long         flags     /* receiving options */
 )
@@ -576,7 +579,32 @@ long rb_sendt
         count_to_write = count > count_to_end ? count_to_end : count;
         bytes_to_write = count_to_write * rb->object_size;
 
-        memcpy(rb->buffer + rb->head * rb->object_size, buf, bytes_to_write);
+        if (buffer)
+        {
+            /*
+             * buffer is set, so we simply copy data from buffer to rb. It's
+             * that simple
+             */
+
+            memcpy(rb->buffer + rb->head * rb->object_size,
+                buf, bytes_to_write);
+        }
+        else
+        {
+            /*
+             * buffer not set, assuming fd is set, read from socket into rb
+             * object
+             */
+
+            int r;
+            /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+            r = rb_posix_read_s(rb, fd);
+            if (rb == -1)
+            {
+
+            }
+        }
 
         /*
          * Adjust pointers and counts for next write
@@ -982,6 +1010,151 @@ long rb_send
 #endif
 }
 
+
+
+long rb_posix_recvt
+(
+    struct rb     *rb,
+    int            fd,
+    size_t         count,
+    unsigned long  flags
+)
+{
+#if ENABLE_POSIX_CALLS
+
+    /*
+     * function is not implemented
+     */
+
+    errno = ENOSYS;
+    return -1;
+
+#else /* ENABLE_POSIX_CALLS */
+
+    size_t         total_read;
+    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+    VALID(EINVAL, rb);
+    VALID(EINVAL, rb->buffer);
+
+    if (count == 0)
+    {
+        /*
+         * reading 0 bytes from socket is not an error,  we  just  return  0
+         * bytes read too.
+         */
+
+        return 0;
+    }
+
+    while (count)
+    {
+        size_t  count_to_end;
+        size_t  count_to_write;
+        size_t  bytes_to_write;
+        /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+        pthread_mutex_lock(&rb->lock);
+
+        while (rb_space_ns(rb) == 0 && rb->force_exit == 0)
+        {
+            struct timespec ts;  /* timeout for pthread_cond_timedwait */
+            /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+            /*
+             * buffer is full and no new data can be  pushed,  we  wait  for
+             * room or exit if 'rb' is nonblocking
+             */
+
+            if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
+            {
+                pthread_mutex_unlock(&rb->lock);
+
+                if (written == 0)
+                {
+                    /*
+                     * set errno only when we did not read any bytes from rb
+                     * this is how standard posix read/send works
+                     */
+
+                    errno = EAGAIN;
+                    return -1;
+                }
+
+                return written;
+            }
+
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += 5;
+
+            /*
+             * This happens only after calling rb_stop()
+             *
+             * on some very rare ocassions it is possible that signal  won't
+             * reach out rb->wait_room conditional variable.  This shouldn't
+             * happend, but yet it does.  Such behaviour may cause deadlock.
+             * To prevent deadlock we wake this thread every now and then to
+             * make sure program is running.  When everything works ok, this
+             * has marginal impact on performance and when things go  south,
+             * instead of deadlocking  we  stall  execution  for  maximum  5
+             * seconds.
+             *
+             * TODO: look into this and try to make proper fix
+             */
+
+            pthread_cond_timedwait(&rb->wait_room, &rb->lock, &ts);
+        }
+
+        if (rb->force_exit == 1)
+        {
+            /*
+             * ring buffer is going down operations on buffer are not allowed
+             */
+
+            pthread_mutex_unlock(&rb->lock);
+            return -1;
+        }
+
+        /*
+         * Count might be too large to store it in one burst, we calculate
+         * how many elements can we store before needing to overlap memor
+         */
+
+        count_to_end = rb_space_end(rb);
+        count_to_write = count > count_to_end ? count_to_end : count;
+        bytes_to_write = count_to_write * rb->object_size;
+
+        /*
+         * read from file descriptor to ring buffer,
+         */
+
+        memcpy(rb->buffer + rb->head * rb->object_size, buf, bytes_to_write);
+
+        /*
+         * Adjust pointers and counts for next write
+         */
+
+        buf += bytes_to_write;
+        rb->head += count_to_write;
+        rb->head &= rb->count - 1;
+        written += count_to_write;
+        count -= count_to_write;
+
+        /*
+         * Signal any threads that waits for data to read
+         */
+
+        pthread_cond_signal(&rb->wait_data);
+        pthread_mutex_unlock(&rb->lock);
+    }
+
+
+    }
+#endif /* ENABLE_POSIX_CALLS */
+}
 
 /* ==========================================================================
     Clears all data in the buffer

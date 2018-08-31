@@ -43,4 +43,9 @@ long rb_count(struct rb *rb);
 long rb_space(struct rb *rb);
 size_t rb_header_size(void);
 
+int rb_posix_read(struct rb *rb, int fd, size_t count);
+int rb_posix_recv(struct rb *rb, int fd, size_t count, unsigned long flags);
+int rb_posix_write(struct rb *rb, int fd, size_t count);
+int rb_posix_send(struct rb *rb, int fd, size_t count, unsigned long flags);
+
 #endif
