@@ -30,6 +30,9 @@
 #   include <sys/time.h>
 #endif
 
+#if ENABLE_POSIX_CALLS
+#   include <unistd.h>
+#endif
 #include "rb.h"
 #include "valid.h"
 
@@ -180,6 +183,66 @@ static int rb_is_power_of_two
 
 
 /* ==========================================================================
+    Reads 'count' bytes of data from 'fd'  into  memory  pointed  by  'dst'.
+    This function is basically read() but it first checks if read()  can  be
+    called without blocking. It's like non-blocking read();
+
+    Number of bytes read or -1 on error.
+   ========================================================================== */
+
+#if ENABLE_POSIX_CALLS
+
+static long rb_nb_read
+(
+    int             fd,    /* file descriptor to check */
+    void           *dst,   /* where data from read() should be stored */
+    size_t          count  /* number of bytes to read */
+)
+{
+    struct timeval  tv;    /* timeout for select() function */
+    fd_set          fds;   /* fd set to check for activity */
+    int             sact;  /* return value from select() */
+    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+    /*
+     * we simply want to check if data is available and don't want select()
+     * to block
+     */
+
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+
+    FD_ZERO(&fds);
+    FD_SET(fd, &fds);
+
+    sact = select(fd + 1, &fds, NULL, NULL, &tv);
+
+    if (sact == -1)
+    {
+        /*
+         * critical error, we're fucked... I mean caller is fucked
+         */
+
+        return -1;
+    }
+
+    if (sact == 0)
+    {
+        /*
+         * no data to read immediately from 'fd' socket
+         */
+
+        errno = EAGAIN;
+        return -1;
+    }
+
+    return read(fd, dst, count);
+}
+
+#endif /* ENABLE_POSIX_CALLS */
+
+/* ==========================================================================
     Function reads maximum count of data from rb  into  buffer.   When  user
     requested more data than there is in a buffer, function  will  copy  all
     data from rb and will return number of bytes copied.  When there  is  no
@@ -195,6 +258,7 @@ static long rb_recvs
 (
     struct rb*      rb,       /* rb object */
     void*           buffer,   /* buffer where received data will be copied */
+    int             fd,
     size_t          count,    /* number of elements to copy to buffer */
     unsigned long   flags     /* receiving options */
 )
@@ -282,15 +346,16 @@ static long rb_recvt
 (
     struct rb*      rb,      /* rb object */
     void*           buffer,  /* buffer where received data will be copied to */
+    int             fd,
     size_t          count,   /* number of elements to copy to buffer */
     unsigned long   flags    /* receiving options */
 )
 {
-    size_t          read;    /* number of elements read */
+    size_t          r;       /* number of elements read */
     unsigned char*  buf;     /* buffer treated as unsigned char type */
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
-    read = 0;
+    r = 0;
     buf = buffer;
 
     while (count)
@@ -318,7 +383,7 @@ static long rb_recvt
             {
                 pthread_mutex_unlock(&rb->lock);
 
-                if (read == 0)
+                if (r == 0)
                 {
                     /*
                      * set errno only when we did not read any bytes from rb
@@ -328,7 +393,7 @@ static long rb_recvt
                     errno = EAGAIN;
                     return -1;
                 }
-                return read;
+                return r;
             }
 
             clock_gettime(CLOCK_REALTIME, &ts);
@@ -380,7 +445,7 @@ static long rb_recvt
         buf += bytes_to_read;
         rb->tail += count_to_read;
         rb->tail &= rb->count - 1;
-        read += count_to_read;
+        r += count_to_read;
         count -= count_to_read;
 
         /*
@@ -391,7 +456,7 @@ static long rb_recvt
         pthread_mutex_unlock(&rb->lock);
     }
 
-    return read;
+    return r;
 }
 
 
@@ -399,10 +464,13 @@ static long rb_recvt
 
 
 /* ==========================================================================
-    Function writes maximum count of data into ring buffer from buffer.   If
-    there is not enough space to store all data from buffer,  function  will
-    store as many as it can, and will return count of  objects  stored  into
-    ring buffer. If buffer is full, function returns -1 and EAGAIN error.
+    Function writes maximum count of data into ring buffer  from  buffer  or
+    file/socket described by fd.  If there is not enough space to store  all
+    data from buffer, function will store as many as it can, and will return
+    count of objects stored into ring buffer.  If buffer is  full,  function
+    returns -1 and EAGAIN error.
+
+    Either buffer or fd can be passed, never both!
    ========================================================================== */
 
 
@@ -410,6 +478,7 @@ static long rb_sends
 (
     struct rb*            rb,       /* rb object */
     const void*           buffer,   /* location of data to put into rb */
+    int                   fd,       /* file descriptor to read data from */
     size_t                count,    /* number of elements to put on the rb */
     unsigned long         flags     /* receiving options */
 )
@@ -418,6 +487,7 @@ static long rb_sends
     size_t                spce;     /* space left in rb until overlap */
     size_t                objsize;  /* size of a single element in rb */
     const unsigned char*  buf;      /* buffer treated as unsigned char */
+    long                  r;        /* number of bytes read from fd */
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
     (void)flags;
@@ -441,42 +511,132 @@ static long rb_sends
     spce = rb_space_end(rb);
     buf = buffer;
 
+#if ENABLE_POSIX_CALLS
+
+    if (buf)
+    {
+
+#endif /* ENABLE_POSIX_CALLS */
+
+        if (count > spce)
+        {
+            /*
+             * Memory overlaps, copy data in two turns
+             */
+
+            memcpy(rb->buffer + rb->head * objsize, buf, spce * objsize);
+            memcpy(rb->buffer, buf + spce * objsize, (count - spce) * objsize);
+            rb->head = count - spce;
+        }
+        else
+        {
+            /*
+             * Memory doesn't overlap, good, we can do copying in one go
+             */
+
+            memcpy(rb->buffer + rb->head * objsize, buf, count * objsize);
+            rb->head += count;
+            rb->head &= rb->count - 1;
+        }
+
+        return count;
+
+#if ENABLE_POSIX_CALLS
+
+    }
+
+    /*
+     * use file descriptor as a source of data to put into rb
+     */
+
     if (count > spce)
     {
+        long  tr;     /* total number of elements read from fd */
+        /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+        r = rb_nb_read(fd, rb->buffer + rb->head * objsize, spce * objsize);
+
+        if (r == -1)
+        {
+            return -1;
+        }
+
         /*
-         * Memory overlaps, copy data in two turns
+         * we operate on elements, and read() returns number of bytes read,
+         * so here we convert number of bytes read into number of elements
+         * read.
          */
 
-        memcpy(rb->buffer + rb->head * objsize, buf, spce * objsize);
-        memcpy(rb->buffer, buf + spce * objsize, (count - spce) * objsize);
-        rb->head = count - spce;
+        tr = r / objsize;
+
+        if (tr != spce)
+        {
+            /*
+             * read() returned less bytes than we wanted, fd  is  empty,  no
+             * need for another call and we didn't overlap memory
+             */
+
+            rb->head += tr;
+            rb->head &= rb->count -1;
+            return tr;
+        }
+
+        r = rb_nb_read(fd, rb->buffer, (count - spce) * objsize);
+
+        if (r == -1)
+        {
+            return -1;
+        }
+
+        /*
+         * since we overlaped and put data to rb->head, new rb->head pointer
+         * is simply moved by the number of elements read from the read()
+         */
+
+        tr += r / objsize;
+        rb->head = r / objsize;
+
+        /*
+         * and we return number of elements totaly read from read()
+         */
+
+        return tr;
     }
-    else
+
+    /*
+     * read from fd when memory does not overlap and we can do read in a
+     * single read
+     */
+
+    r = rb_nb_read(fd, rb->buffer + rb->head * objsize, count * objsize);
+
+    if (r == -1)
     {
-        /*
-         * Memory doesn't overlap, good, we can do copying in one go
-         */
-
-        memcpy(rb->buffer + rb->head * objsize, buf, count * objsize);
-        rb->head += count;
-        rb->head &= rb->count - 1;
+        return -1;
     }
 
-    return count;
+    rb->head += r / objsize;
+    rb->head &= rb->count -1;
+    return r / objsize;
+
+#endif /* ENABLE_POSIX_CALLS */
 }
 
 
 /* ==========================================================================
-    Writes count data pointed by buffer in to rb.  Function will block until
-    count elements are stored into rb, unless blocking flag  is  set  to  1.
-    When rb is full and there is still data to write, caller thread will  be
-    put to sleep and will be waked up as soon as there is space in rb. count
-    can be any size, it can be much bigger than rb size, just keep  in  mind
-    if count is too big, time waiting for space might be significant.   When
-    blocking flag is set to 1, and there is less  space  in  rb  than  count
+    Writes count data pointed by buffer or fd into rb.  Function will  block
+    until count elements are stored into rb, unless blocking flag is set  to
+    1.  When rb is full and there is still data to write, caller thread will
+    be put to sleep and will be waked up as soon as there is  space  in  rb.
+    count can be any size, it can be much bigger than rb size, just keep  in
+    mind if count is too big, time waiting for space might  be  significant.
+    When blocking flag is set to 1, and there is less space in rb than count
     expects, function will copy as many elements as it can and  will  return
     with number of elements written to rb.   If  buffer  is  full,  function
     returns -1 and EAGAIN error.
+
+    Either buffer or fd can be set, never both!
    ========================================================================== */
 
 
@@ -486,6 +646,7 @@ long rb_sendt
 (
     struct rb*            rb,       /* rb object */
     const void*           buffer,   /* location of data to put into rb */
+    int                   fd,       /* file descriptor to read data from */
     size_t                count,    /* number of elements to put on the rb */
     unsigned long         flags     /* receiving options */
 )
@@ -576,7 +737,8 @@ long rb_sendt
         count_to_write = count > count_to_end ? count_to_end : count;
         bytes_to_write = count_to_write * rb->object_size;
 
-        memcpy(rb->buffer + rb->head * rb->object_size, buf, bytes_to_write);
+        memcpy(rb->buffer + rb->head * rb->object_size,
+            buf, bytes_to_write);
 
         /*
          * Adjust pointers and counts for next write
@@ -884,7 +1046,7 @@ long rb_recv
 #if ENABLE_THREADS
     if ((rb->flags & O_MULTITHREAD) == 0)
     {
-        return rb_recvs(rb, buffer, count, flags);
+        return rb_recvs(rb, buffer, -1, count, flags);
     }
 
     pthread_mutex_lock(&rb->lock);
@@ -905,14 +1067,14 @@ long rb_recv
          */
 
         pthread_mutex_lock(&rb->lock);
-        count = rb_recvs(rb, buffer, count, flags);
+        count = rb_recvs(rb, buffer, -1, count, flags);
         pthread_mutex_unlock(&rb->lock);
         return count;
     }
 
-    return rb_recvt(rb, buffer, count, flags);
+    return rb_recvt(rb, buffer, -1, count, flags);
 #else
-    return rb_recvs(rb, buffer, count, flags);
+    return rb_recvs(rb, buffer, -1, count, flags);
 #endif
 }
 
@@ -964,7 +1126,7 @@ long rb_send
 #if ENABLE_THREADS
     if ((rb->flags & O_MULTITHREAD) == 0)
     {
-        return rb_sends(rb, buffer, count, flags);
+        return rb_sends(rb, buffer, -1, count, flags);
     }
 
     pthread_mutex_lock(&rb->lock);
@@ -976,10 +1138,83 @@ long rb_send
     }
     pthread_mutex_unlock(&rb->lock);
 
-    return rb_sendt(rb, buffer, count, flags);
+    return rb_sendt(rb, buffer, -1, count, flags);
 #else
-    return rb_sends(rb, buffer, count, flags);
+    return rb_sends(rb, buffer, -1, count, flags);
 #endif
+}
+
+
+/* ==========================================================================
+    Same as rb_write, but data is copied from file descriptor  'fd'  instead
+    of user provided buffer.
+   ========================================================================== */
+
+
+long rb_fd_write
+(
+    struct rb   *rb,      /* rb object */
+    int          fd,      /* file descriptor from which copy data to buffer */
+    size_t       count    /* requested number of elements to be put into rb */
+)
+{
+    return rb_fd_send(rb, fd, count, 0);
+}
+
+
+/* ==========================================================================
+    Same as rb_fd_write but also accepts 'flags'
+   ========================================================================== */
+
+
+long rb_fd_send
+(
+    struct rb     *rb,      /* rb object */
+    int            fd,      /* file descriptor from which copy data to buffer */
+    size_t         count,   /* requested number of elements to be put into r */
+    unsigned long  flags    /* operation flags */
+)
+{
+#if ENABLE_POSIX_CALLS
+
+    VALID(EINVAL, rb);
+    VALID(EINVAL, rb->buffer);
+    VALID(EINVAL, fd != -1);
+
+#   if ENABLE_THREADS
+
+    if ((rb->flags & O_MULTITHREAD) == 0)
+    {
+        return rb_sends(rb, NULL, fd, count, flags);
+    }
+
+    pthread_mutex_lock(&rb->lock);
+    if (rb->force_exit)
+    {
+        pthread_mutex_unlock(&rb->lock);
+        errno = ECANCELED;
+        return -1;
+    }
+    pthread_mutex_unlock(&rb->lock);
+
+    return rb_sendt(rb, NULL, fd, count, flags);
+
+#   else /* ENABLE_THREADS */
+
+    return rb_sends(rb, NULL, fd, count, flags);
+
+#   endif /* ENABLE_THREADS */
+
+#else /* ENABLE_POSIX_CALLS */
+
+    /*
+     * function is not implemented
+     */
+
+    errno = ENOSYS;
+    return -1;
+
+#endif /* ENABLE_POSIX_CALLS */
 }
 
 

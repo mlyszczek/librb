@@ -30,6 +30,27 @@ AS_IF([test "x$enable_threads" = "xyes"],
 ])
 
 ###
+# --enable-posix-calls
+#
+
+AC_ARG_ENABLE([posix-calls],
+    AS_HELP_STRING([--enable-posix-calls], [Enable posix helper functions]),
+    [], [enable_posix_calls="yes"])
+
+AS_IF([test "x$enable_posix_calls" = "xyes"],
+[
+    AC_DEFINE([ENABLE_POSIX_CALLS], [1], [Enable posix helper functions])
+    AC_CHECK_HEADERS(unistd.h)
+    AC_CHECK_FUNCS([read],,
+        AC_MSG_ERROR(not found, needed by --enable-posix-calls))
+],
+# else
+[
+    enable_posix_calls="no"
+])
+
+
+###
 # --enable-analyzer
 #
 
