@@ -258,7 +258,7 @@ static long rb_recvs
 (
     struct rb*      rb,       /* rb object */
     void*           buffer,   /* buffer where received data will be copied */
-    int             fd,
+    int             fd,       /* file descriptor where data will be copied */
     size_t          count,    /* number of elements to copy to buffer */
     unsigned long   flags     /* receiving options */
 )
@@ -268,6 +268,7 @@ static long rb_recvs
     size_t          tail;     /* rb->tail copy in case we need to restore it */
     size_t          objsize;  /* size, in bytes, of single object in rb */
     unsigned char*  buf;      /* buffer treated as unsigned char type */
+    long            w;        /* number of bytes wrote with write() */
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
     if (count > (rbcount = rb_count_ns(rb)))
@@ -290,37 +291,106 @@ static long rb_recvs
     cnte = rb_count_end(rb);
     buf = buffer;
 
+#if ENABLE_POSIX_CALLS
+
+    if (buf)
+    {
+
+#endif /* ENABLE_POSIX_CALLS */
+
+        if (count > cnte)
+        {
+            /*
+             * Memory overlaps, copy data in two turns
+             */
+
+            memcpy(buf, rb->buffer + rb->tail * objsize, objsize * cnte);
+            memcpy(buf + cnte * objsize, rb->buffer, (count - cnte) * objsize);
+            rb->tail = flags & MSG_PEEK ? rb->tail : count - cnte;
+        }
+        else
+        {
+            /*
+             * Memory doesn't overlap, good we can do copying on one go
+             */
+
+            memcpy(buf, rb->buffer + rb->tail * objsize, count * objsize);
+            rb->tail += flags & MSG_PEEK ? 0 : count;
+            rb->tail &= rb->count - 1;
+        }
+
+        return count;
+
+#if ENABLE_POSIX_CALLS
+    }
+
+    /*
+     * copy data from buffer to fd
+     */
+
     if (count > cnte)
     {
+        long  tw;     /* total number of elements wrote to fd */
+        /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
         /*
-         * Memory overlaps, copy data in two turns
+         * memory overlaps, we'll need to copy data in two steps
          */
 
-        memcpy(buf, rb->buffer + rb->tail * objsize, objsize * cnte);
-        memcpy(buf + cnte * objsize, rb->buffer, (count - cnte) * objsize);
-        rb->tail = count - cnte;
+        w = write(fd, rb->buffer + rb->tail * objsize, objsize * cnte);
+        if (w == -1)
+        {
+            return -1;
+        }
+
+        /*
+         * we operate on elements, and write() returns number of bytes read,
+         * so here we convert number of bytes wrote into number of  elements
+         * wrote
+         */
+
+        tw = w / objsize;
+
+        if (tw != cnte)
+        {
+            /*
+             * write() returned less bytes than we  wanted,  looks  like  fd
+             * cannot accept more data right now, return  partial  write  to
+             * the caller
+             */
+
+            rb->tail += flags & MSG_PEEK ? 0 : tw;
+            rb->tail &= rb->count - 1;
+            return tw;
+        }
+
+        w = write(fd, rb->buffer, (count - cnte) * objsize);
+        if (w == -1)
+        {
+            return -1;
+        }
+
+        tw += w / objsize;
+        rb->tail = flags & MSG_PEEK ? rb->tail : w / objsize;
+        return tw;
     }
-    else
+
+    /*
+     * write to fd without overlap
+     */
+
+    w = write(fd, rb->buffer + rb->tail * objsize, count * objsize);
+    if (w == -1)
     {
-        /*
-         * Memory doesn't overlap, good we can do copying on one go
-         */
-
-        memcpy(buf, rb->buffer + rb->tail * objsize, count * objsize);
-        rb->tail += count;
-        rb->tail &= rb->count - 1;
+        return -1;
     }
 
-    if (flags & MSG_PEEK)
-    {
-        /*
-         * Caller is just peeking, restore previous tail position
-         */
+    rb->tail += flags & MSG_PEEK ? 0 : w / objsize;
+    rb->tail &= rb->count - 1;
+    return w / objsize;
 
-        rb->tail = tail;
-    }
-
-    return count;
+#endif /* ENABLE_POSIX_CALLS */
 }
 
 
@@ -1076,6 +1146,93 @@ long rb_recv
 #else
     return rb_recvs(rb, buffer, -1, count, flags);
 #endif
+}
+
+
+/* ==========================================================================
+    Same as rb_read, but data is copied to file descriptor 'fd'  instead  of
+    user provided buffer
+   ========================================================================== */
+
+
+long rb_fd_read
+(
+    struct rb  *rb,    /* rb object */
+    int         fd,    /* file descriptor data from rb will be copied to */
+    size_t      count  /* requested number of elements to be copied from rb */
+)
+{
+    return rb_fd_recv(rb, fd, count, 0);
+}
+
+
+/* ==========================================================================
+    Same as rb_fd_read but also accepts flags
+   ========================================================================== */
+
+
+long rb_fd_recv
+(
+    struct rb     *rb,    /* rb object */
+    int            fd,    /* file descriptor data from rb will be copied to */
+    size_t         count, /* requested number of elements to be copied from rb*/
+    unsigned long  flags  /* operation flags */
+)
+{
+#if ENABLE_POSIX_CALLS
+
+    VALID(EINVAL, rb);
+    VALID(EINVAL, rb->buffer);
+    VALID(EINVAL, fd >= 0);
+
+#   if ENABLE_THREADS
+
+    if ((rb->flags & O_MULTITHREAD) == 0)
+    {
+        return rb_recvs(rb, NULL, fd, count, flags);
+    }
+
+    pthread_mutex_lock(&rb->lock);
+    if (rb->force_exit)
+    {
+        pthread_mutex_unlock(&rb->lock);
+        errno = ECANCELED;
+        return -1;
+    }
+    pthread_mutex_unlock(&rb->lock);
+
+    if (flags & MSG_PEEK)
+    {
+        /*
+         * when called is just peeking, we can simply call function for
+         * single thread, as it will not modify no data, and will not cause
+         * deadlock
+         */
+
+        pthread_mutex_lock(&rb->lock);
+        count = rb_recvs(rb, NULL, fd, count, flags);
+        pthread_mutex_unlock(&rb->lock);
+        return count;
+    }
+
+    return rb_recvt(rb, NULL, fd, count, flags);
+
+#   else /* ENABLE_THREADS */
+
+    return rb_recvs(rb, NULL, fd, count, flags);
+
+#   endif /* ENABLE_THREADS */
+
+#else /* ENABLE_POSIX_CALLS */
+
+    /*
+     * function is no implemented
+     */
+
+    errno = ENOSYS;
+    return -1;
+
+#endif /* ENABLE_POSIX_CALLS */
 }
 
 

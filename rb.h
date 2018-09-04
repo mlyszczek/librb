@@ -32,6 +32,8 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, unsigned long flags);
 long rb_write(struct rb *rb, const void *buffer, size_t count);
 long rb_send(struct rb *rb, const void *buffer, size_t count,
     unsigned long flags);
+long rb_fd_read(struct rb *rb, int fd, size_t count);
+long rb_fd_recv(struct rb *rb, int fd, size_t count, unsigned long flags);
 long rb_fd_write(struct rb *rb, int fd, size_t count);
 long rb_fd_send(struct rb *rb, int fd, size_t count, unsigned long flags);
 
