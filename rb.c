@@ -14,9 +14,17 @@
    ========================================================================== */
 
 
+#include <stdio.h>
+
 #if HAVE_CONFIG_H
-#include "config.h"
-#endif
+#   include "config.h"
+#endif /* HAVE_CONFIG_H */
+
+#if HAVE_ASSERT_H
+#   include <assert.h>
+#else /* HAVE_ASSERT_H */
+#   define assert(x)
+#endif /* HAVE_ASSERT_H */
 
 #include <errno.h>
 #include <stddef.h>
@@ -28,11 +36,15 @@
 #   include <pthread.h>
 #   include <sys/socket.h>
 #   include <sys/time.h>
-#endif
+#   if ENABLE_POSIX_CALLS
+#       include <signal.h>
+#   endif /* ENABLE_POSIX_CALLS */
+#endif /* ENABLE_THREADS */
 
 #if ENABLE_POSIX_CALLS
 #   include <unistd.h>
-#endif
+#endif /* ENABLE_POSIX_CALLS */
+
 #include "rb.h"
 #include "valid.h"
 
@@ -46,6 +58,21 @@
 /_/                                              /____//_/
    ========================================================================== */
 
+
+#if ENABLE_POSIX_CALLS
+
+/*
+ * sadly there is no portable pthread_t invalid value like '0', so  we  need
+ * used field to know if field in blocked threads list is empty or not.
+ */
+
+struct blocked_threads
+{
+    pthread_t  thread;  /* blocked thread */
+    int        valid;   /* if set, thread is valid */
+};
+
+#endif /* ENABLE_POSIX_CALLS */
 
 /*
  * Ring buffer information.  This needs to be  hidden  in  c,  because  some
@@ -68,13 +95,25 @@ struct rb
     unsigned char   *buffer;      /* pointer to ring buffer in memory */
 
 #if ENABLE_THREADS
+
     pthread_mutex_t  lock;        /* mutex for concurrent access */
     pthread_cond_t   wait_data;   /* ca, will block if buffer is empty */
     pthread_cond_t   wait_room;   /* ca, will block if buffer is full */
     pthread_t        stop_thread; /* thread to force thread to exit send/recv */
     int              stopped_all; /* when set no threads are in send/recv */
     int              force_exit;  /* if set, library will stop all operations */
-#endif
+
+#   if ENABLE_POSIX_CALLS
+
+    struct blocked_threads *blocked_threads; /* blocked threads in rb */
+    int              curr_blocked;  /* current number of threads in read() */
+    int              max_blocked;   /* size of blocked_threads array */
+    int              signum;        /* signal to send when stopping blocked
+                                       threads */
+
+#   endif /* ENABLE_POSIX_CALLS */
+
+#endif /* ENABLE_THREADS */
 };
 
 
@@ -183,6 +222,181 @@ static int rb_is_power_of_two
 
 
 /* ==========================================================================
+    Signal action handler. It's called when we signal blocked thread to exit
+    blocked system call, it does nothing, it's here so we don't crash.
+   ========================================================================== */
+
+
+#if ENABLE_THREADS && ENABLE_POSIX_CALLS
+
+static void rb_sigaction(int signum)
+{
+    return;
+}
+
+#endif /* ENABLE_THREADS && ENABLE_POSIX_CALLS */
+
+
+/* ==========================================================================
+    This function will add currently executing thread to the list of blocked
+    threads. It will try to allocate more memory if it detects all slots are
+    used up.
+
+    On success 0 is returned, on error -1. Error can be returned only when
+    realloc fails - that is there is not enough memory in the sytem.
+   ========================================================================== */
+
+
+#if ENABLE_THREADS && ENABLE_POSIX_CALLS
+
+static int rb_add_blocked_thread
+(
+    struct rb  *rb  /* rb object */
+)
+{
+    int         i;  /* just an iterator */
+    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+    if (rb->curr_blocked >= rb->max_blocked)
+    {
+        void *p;  /* new pointer for blocked threads */
+        /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+        /*
+         * all slots for blocked threads are used up, we  need  to  allocate
+         * more by doubling available memory
+         */
+
+        p = realloc(rb->blocked_threads,
+            2 * rb->max_blocked * sizeof(struct blocked_threads));
+
+        if (p == NULL)
+        {
+            /*
+             * failed to realloc memory, we  return  error  without  chaning
+             * anything in rb object
+             */
+
+            return -1;
+        }
+
+        /*
+         * realocation was a success, we can now change rb object to reflect
+         * new memory
+         */
+
+        rb->blocked_threads = p;
+        rb->max_blocked *= 2;
+
+        /*
+         * one thing left, new memory we got from realloc contains  garbage,
+         * so we need to initialize it to 0.  We just doubled  memory  size,
+         * so only second half of memory needs to be zeroed.
+         */
+
+        memset(rb->blocked_threads + rb->max_blocked / 2, 0x00,
+            rb->max_blocked / 2 * sizeof(struct blocked_threads));
+    }
+
+    /*
+     * there is at least one slot available for our blocked thread info
+     */
+
+    for (i = 0; i != rb->max_blocked; ++i)
+    {
+        /*
+         * let's find free slot
+         */
+
+        if (rb->blocked_threads[i].valid)
+        {
+            /*
+             * nope, that ain't it
+             */
+
+            continue;
+        }
+
+        /*
+         * and here is our free slot, let's fill it with thread info
+         */
+
+        rb->blocked_threads[i].thread = pthread_self();
+        rb->blocked_threads[i].valid = 1;
+        rb->curr_blocked++;
+        return 0;
+    }
+
+    /*
+     * I have *NO* idea how could we get here.  Anyway, let's  return  error
+     * as we didn't add thread to the list
+     */
+
+    assert(0 && "rb_add_blocked_thread() error adding thread, all slots used?");
+    return -1;
+}
+
+#endif /* ENABLE_THREADS && ENABLE_POSIX_CALLS */
+
+
+/* ==========================================================================
+    This will remove current thread from the list of  blocked  threads.   It
+    shouldn't fail. If it does, there is logic error in the code.
+   ========================================================================== */
+
+
+#if ENABLE_THREADS && ENABLE_POSIX_CALLS
+
+static int rb_del_blocked_thread
+(
+    struct rb  *rb            /* rb object */
+)
+{
+    int         i;            /* just an iterator */
+    pthread_t   curr_thread;  /* current thread */
+    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+    curr_thread = pthread_self();
+
+    for (i = 0; i != rb->max_blocked; ++i)
+    {
+        if (rb->blocked_threads[i].valid == 0)
+        {
+            /*
+             * empty slot, nothing to do
+             */
+
+            continue;
+        }
+
+        if (pthread_equal(curr_thread, rb->blocked_threads[i].thread))
+        {
+            /*
+             * this is our slot, remove thread from the list,  there  is  no
+             * need to set .thread field to 0, as 0 may still  be  valid  id
+             */
+
+            rb->blocked_threads[i].valid = 0;
+            rb->curr_blocked--;
+            return 0;
+        }
+    }
+
+    /*
+     * couldn't find current thread on the list, shouldn't happen, but still
+     * life can be surprising
+     */
+
+    assert(0 && "rb_del_blocked_thread() thread not found on the list");
+    return -1;
+}
+
+#endif /* ENABLE_THREADS && ENABLE_POSIX_CALLS */
+
+
+/* ==========================================================================
     Reads 'count' bytes of data from 'fd'  into  memory  pointed  by  'dst'.
     This function is basically read() but it first checks if read()  can  be
     called without blocking. It's like non-blocking read();
@@ -240,7 +454,69 @@ static long rb_nb_read
     return read(fd, dst, count);
 }
 
+#endif /* ENABLE_THREADS && ENABLE_POSIX_CALLS */
+
+
+/* ==========================================================================
+    Writes 'cont' bytes of data from 'src' into file descriptor 'fd'. It's
+    basically non blocking write().
+
+    Returns number of bytes or -1 on error
+   ========================================================================== */
+
+
+#if ENABLE_POSIX_CALLS
+
+static long rb_nb_write
+(
+    int             fd,    /* file descriptor to check */
+    void           *src,   /* location to write data from */
+    size_t          count  /* number of bytes to write */
+)
+{
+    struct timeval  tv;    /* timeout for select() function */
+    fd_set          fds;   /* fd set to check for activity */
+    int             sact;  /* return value from select() */
+    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+    /*
+     * we simply want to check if data is available and don't want select()
+     * to block
+     */
+
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+
+    FD_ZERO(&fds);
+    FD_SET(fd, &fds);
+
+    sact = select(fd + 1, NULL, &fds, NULL, &tv);
+
+    if (sact == -1)
+    {
+        /*
+         * critical error, we're fucked... I mean caller is fucked
+         */
+
+        return -1;
+    }
+
+    if (sact == 0)
+    {
+        /*
+         * no data to write immediately to 'fd' socket
+         */
+
+        errno = EAGAIN;
+        return -1;
+    }
+
+    return write(fd, src, count);
+}
+
 #endif /* ENABLE_POSIX_CALLS */
+
 
 /* ==========================================================================
     Function reads maximum count of data from rb  into  buffer.   When  user
@@ -322,6 +598,7 @@ static long rb_recvs
         return count;
 
 #if ENABLE_POSIX_CALLS
+
     }
 
     /*
@@ -338,7 +615,7 @@ static long rb_recvs
          * memory overlaps, we'll need to copy data in two steps
          */
 
-        w = write(fd, rb->buffer + rb->tail * objsize, objsize * cnte);
+        w = rb_nb_write(fd, rb->buffer + rb->tail * objsize, objsize * cnte);
         if (w == -1)
         {
             return -1;
@@ -365,7 +642,7 @@ static long rb_recvs
             return tw;
         }
 
-        w = write(fd, rb->buffer, (count - cnte) * objsize);
+        w = rb_nb_write(fd, rb->buffer, (count - cnte) * objsize);
         if (w == -1)
         {
             return -1;
@@ -380,7 +657,7 @@ static long rb_recvs
      * write to fd without overlap
      */
 
-    w = write(fd, rb->buffer + rb->tail * objsize, count * objsize);
+    w = rb_nb_write(fd, rb->buffer + rb->tail * objsize, count * objsize);
     if (w == -1)
     {
         return -1;
@@ -426,6 +703,7 @@ static long rb_recvt
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
     r = 0;
+    errno = 0;
     buf = buffer;
 
     while (count)
@@ -506,13 +784,140 @@ static long rb_recvt
         count_to_read = count > count_to_end ? count_to_end : count;
         bytes_to_read = count_to_read * rb->object_size;
 
-        memcpy(buf, rb->buffer + rb->tail * rb->object_size, bytes_to_read);
+#   if ENABLE_POSIX_CALLS
+
+        if (buf)
+        {
+
+#   endif /* ENABLE_POSIX_CALLS */
+
+            memcpy(buf, rb->buffer + rb->tail * rb->object_size, bytes_to_read);
+            buf += bytes_to_read;
+
+#   if ENABLE_POSIX_CALLS
+
+        }
+        else
+        {
+            long            w;
+            fd_set          fds;
+            int             sact;
+            struct timeval  tv;
+            /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+            /*
+             * check rb_sendt() function to why we do what we do  here  with
+             * select(), it's the same thing  but  for  write()  instead  of
+             * read().  In short, write() may block  and  that  could  cause
+             * deadlock, and select() saves us from that
+             */
+
+            if (rb_add_blocked_thread(rb) == -1)
+            {
+                flags |= MSG_DONTWAIT;
+            }
+
+            pthread_mutex_unlock(&rb->lock);
+
+            tv.tv_sec = 0;
+            tv.tv_usec = 0;
+
+            FD_ZERO(&fds);
+            FD_SET(fd, &fds);
+
+            if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
+            {
+                sact = select(fd + 1, NULL, &fds, NULL, &tv);
+            }
+            else
+            {
+                sact = select(fd + 1, NULL, &fds, NULL, NULL);
+            }
+
+            pthread_mutex_lock(&rb->lock);
+            rb_del_blocked_thread(rb);
+
+            if (sact == -1)
+            {
+                pthread_mutex_unlock(&rb->lock);
+                return -1;
+            }
+
+            if (sact == 0)
+            {
+                pthread_mutex_unlock(&rb->lock);
+
+                if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
+                {
+
+                    if (r == 0)
+                    {
+                        errno = EAGAIN;
+                        return -1;
+                    }
+
+                    return r;
+                }
+
+                continue;
+            }
+
+            w = write(fd, rb->buffer + rb->tail * rb->object_size,
+                bytes_to_read);
+
+            if (w == -1)
+            {
+                pthread_mutex_unlock(&rb->lock);
+
+                if (errno == EAGAIN)
+                {
+                    if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
+                    {
+                        /*
+                         * write cannot be finished without blocking- EAGAIN
+                         * and user requested non blocking operation, so  we
+                         * return. We don't notify anyone here, as this loop
+                         * didn't take anything from rb
+                         */
+
+                        return r ? r : -1;
+                    }
+
+                    /*
+                     * looks like, passed fd is a non blocking  socket,  but
+                     * caller  wants  blocking  operation,  so   we   simply
+                     * continue but without notifying another threads as  no
+                     * data has been read from rb
+                     */
+
+                    continue;
+                }
+
+                /*
+                 * got some nasty error from write(), not much to do, return
+                 * number of elements read - user must check errno to see if
+                 * there was any error
+                 */
+
+                return r ? r : -1;
+            }
+
+            /*
+             * write() returned something meaningfull,  overwrite  count  to
+             * read variable to what was actually read, so pointers are  set
+             * properly
+             */
+
+            count_to_read = w;
+       }
+
+#   endif /* ENABLE_POSIX_CALLS */
 
         /*
          * Adjust pointers and counts for the next read
          */
 
-        buf += bytes_to_read;
         rb->tail += count_to_read;
         rb->tail &= rb->count - 1;
         r += count_to_read;
@@ -721,11 +1126,11 @@ long rb_sendt
     unsigned long         flags     /* receiving options */
 )
 {
-    size_t                written;  /* number of bytes written to rb */
+    size_t                w;        /* number of elements written to rb */
     const unsigned char*  buf;      /* buffer treated as unsigned char type */
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
-    written = 0;
+    w = 0;
     buf = buffer;
 
     while (count)
@@ -741,7 +1146,7 @@ long rb_sendt
         while (rb_space_ns(rb) == 0 && rb->force_exit == 0)
         {
             struct timespec ts;  /* timeout for pthread_cond_timedwait */
-            /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+            /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 
             /*
@@ -753,7 +1158,7 @@ long rb_sendt
             {
                 pthread_mutex_unlock(&rb->lock);
 
-                if (written == 0)
+                if (w == 0)
                 {
                     /*
                      * set errno only when we did not read any bytes from rb
@@ -764,7 +1169,7 @@ long rb_sendt
                     return -1;
                 }
 
-                return written;
+                return w;
             }
 
             clock_gettime(CLOCK_REALTIME, &ts);
@@ -807,17 +1212,206 @@ long rb_sendt
         count_to_write = count > count_to_end ? count_to_end : count;
         bytes_to_write = count_to_write * rb->object_size;
 
-        memcpy(rb->buffer + rb->head * rb->object_size,
-            buf, bytes_to_write);
+#   if ENABLE_POSIX_CALLS
+
+        if (buf)
+        {
+
+#   endif /* ENABLE_POSIX_CALLS */
+
+            memcpy(rb->buffer + rb->head * rb->object_size,
+                buf, bytes_to_write);
+            buf += bytes_to_write;
+
+#   if ENABLE_POSIX_CALLS
+
+        }
+        else
+        {
+            long            r;     /* number of bytes read from read() */
+            fd_set          fds;   /* watch set for select() */
+            int             sact;  /* select() return code */
+            struct timeval  tv;    /* timeout for select() */
+            /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+            /*
+             * add current thread to the list of possible locked threads in
+             * read() so we can interrupt them on rb_stop()
+             */
+
+            if (rb_add_blocked_thread(rb) == -1)
+            {
+                /*
+                 * we couldn't add blockedthread, very unlikely, but we set
+                 * this call to be non blocking to avoid deadlock
+                 */
+
+                flags |= MSG_DONTWAIT;
+            }
+
+            /*
+             * read() may block, and read() uses rb directly, so blocking in
+             * read() here would cause  massive  deadlock  as  rb  mutex  is
+             * locked here.  To prevent bad things from happening we need to
+             * make sure read() can be invoked without blocking, for that we
+             * will use good old fashioned select() and  we  can  do  it  in
+             * unlocked state, so when we  wait  in  select(),  some  thread
+             * calling rb_write() could write to rb
+             */
+
+            pthread_mutex_unlock(&rb->lock);
+
+            tv.tv_sec = 0;
+            tv.tv_usec = 0;
+
+            FD_ZERO(&fds);
+            FD_SET(fd, &fds);
+
+            if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
+            {
+                /*
+                 * call select() without blocking (timeout = 0)
+                 */
+
+                sact = select(fd + 1, &fds, NULL, NULL, &tv);
+            }
+            else
+            {
+                /*
+                 * call select() without timeout, so it block indefinitely
+                 */
+
+                sact = select(fd + 1, &fds, NULL, NULL, NULL);
+            }
+
+            pthread_mutex_lock(&rb->lock);
+            rb_del_blocked_thread(rb);
+
+            if (sact == -1)
+            {
+                pthread_mutex_unlock(&rb->lock);
+                return -1;
+            }
+
+            if (sact == 0)
+            {
+                /*
+                 * timeout in select() occured
+                 */
+
+                pthread_mutex_unlock(&rb->lock);
+
+                if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
+                {
+                    /*
+                     * in non blocking mode, we return what has been already
+                     * put into rb (or -1 if nothing has been stored in rb)
+                     */
+
+                    if (w == 0)
+                    {
+                        errno = EAGAIN;
+                        return -1;
+                    }
+
+                    return w;
+                }
+
+                /*
+                 * okay, so open group defines when select() is called  with
+                 * timeout set to NULL,  select()  will  block  until  event
+                 * occurs
+                 *
+                 * > If the timeout argument is  a  null  pointer,  select()
+                 * > blocks until an event causes one of  the  masks  to  be
+                 * > returned with a valid (non-zero) value
+                 * http://pubs.opengroup.org/onlinepubs/7908799/xsh/select.html
+                 *
+                 * freebsd also will block indefiniately:
+                 *
+                 * > If  timeout  is  a  nil  pointer,   the  select  blocks
+                 * > indefinitely.
+                 * http://nixdoc.net/man-pages/FreeBSD/man4/man2/select.2.html
+                 *
+                 * But linux man page states that select() only *CAN*  block
+                 * indefinitely, not *MUST*
+                 *
+                 * > If timeout is NULL  (no timeout),  select()  can  block
+                 * > indefinitely.
+                 * http://man7.org/linux/man-pages/man2/select.2.html
+                 *
+                 * Taking that into  considaration,  even  though  it's  not
+                 * fully posix compliant, we expect  select()  to  return  0
+                 * when timeout  was  set  to  NULL,  it  won't  harm  posix
+                 * implementation of select(), but will save our asses  from
+                 * Linux
+                 */
+
+                continue;
+            }
+
+            /*
+             * now we are sure read() won't block
+             */
+
+            r = read(fd, rb->buffer + rb->head * rb->object_size,
+                bytes_to_write);
+
+            if (r == -1)
+            {
+                pthread_mutex_unlock(&rb->lock);
+
+                if (errno == EAGAIN)
+                {
+                    if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
+                    {
+                        /*
+                         * write cannot be finished without blocking- EAGAIN
+                         * and user requested non blocking operation, so  we
+                         * return. We don't notify anyone here, as this loop
+                         * didn't take anything from rb
+                         */
+
+                        return w ? w : -1;
+                    }
+
+                    /*
+                     * looks like, passed fd is a non blocking  socket,  but
+                     * caller  wants  blocking  operation,  so   we   simply
+                     * continue but without notifying another threads as  no
+                     * data has been read from rb
+                     */
+
+                    continue;
+                }
+
+                /*
+                 * got some nasty error from write(), not much to do, return
+                 * number of elements read - user must check errno to see if
+                 * there was any error
+                 */
+
+                return w ? w : -1;
+            }
+
+            /*
+             * write() returned something meaningfull,  overwrite  count  to
+             * read variable to what was actually read, so pointers are  set
+             * properly
+             */
+
+            count_to_write = r;
+        }
+
+#   endif /* ENABLE_POSIX_CALLS */
 
         /*
          * Adjust pointers and counts for next write
          */
 
-        buf += bytes_to_write;
         rb->head += count_to_write;
         rb->head &= rb->count - 1;
-        written += count_to_write;
+        w += count_to_write;
         count -= count_to_write;
 
         /*
@@ -828,7 +1422,7 @@ long rb_sendt
         pthread_mutex_unlock(&rb->lock);
     }
 
-    return written;
+    return w;
 }
 
 
@@ -845,6 +1439,16 @@ static void *rb_stop_thread
 {
     struct rb  *rb;       /* ring buffer object */
     int         stopped;  /* copy of rb->stopped_all */
+    int         i;        /* i stands for iterator dude! */
+
+#   if ENABLE_POSIX_CALLS
+
+    struct sigaction sa;  /* signal action info */
+    struct sigaction osa; /* Office of Secret Actions... kidding, it's old sa */
+    time_t           now; /* current time in seconds */
+    time_t           prev;/* previous time */
+
+#   endif /* ENABLE_POSIX_CALLS */
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 
@@ -855,8 +1459,42 @@ static void *rb_stop_thread
     rb->force_exit = 1;
     pthread_mutex_unlock(&rb->lock);
 
+#   if ENABLE_POSIX_CALLS
+
+    now = 0;
+    prev = 0;
+
     /*
-     * Send cond signal, until all threads exits read/send functions.
+     * we need to install action handler, so sending signal won't kill  kill
+     * application
+     */
+
+    memset(&sa, 0x00, sizeof(sa));
+    memset(&osa, 0x00, sizeof(osa));
+    sa.sa_handler = rb_sigaction;
+
+    /*
+     * install signal action for user specified signal (or default one if he
+     * didn't define it
+     */
+
+    if (sigaction(rb->signum, &sa, NULL) == -1)
+    {
+        /*
+         * good job user, he just passed wrong signal (like SIGKILL) or
+         * something that is not supported on this platform, let's try to
+         * save his sorry ass by installing default sigaction.
+         */
+
+        sigaction(SIGUSR1, &sa, &osa);
+    }
+
+#   endif /* ENABLE_POSIX_CALLS */
+
+    /*
+     * Send cond signal, until all threads exits read/send functions.   This
+     * loop will finish once user calls rb_cleanup().  It's his job to check
+     * if all threads finished before calling rb_cleanup()
      */
 
     while (stopped != 1)
@@ -865,8 +1503,66 @@ static void *rb_stop_thread
         pthread_cond_signal(&rb->wait_data);
         pthread_cond_signal(&rb->wait_room);
         stopped = rb->stopped_all;
+
+#   if ENABLE_POSIX_CALLS
+
+        /*
+         * send signal to all threads locked in  system  call,  signal  will
+         * make sytem call to interrupt
+         */
+
+        now = time(NULL);
+
+        if (now != prev)
+        {
+            prev = now;
+            for (i = 0; i != rb->max_blocked; ++i)
+            {
+                if (rb->curr_blocked == 0)
+                {
+                    /*
+                     * no threads in blocked state, no need for iteration
+                     */
+
+                    break;
+                }
+
+                if (rb->blocked_threads[i].valid == 0)
+                {
+                    /*
+                     * empty slot
+                     */
+
+                    continue;
+                }
+
+                fprintf(stderr, "killing %d\n", i);
+                pthread_kill(rb->blocked_threads[i].thread, rb->signum);
+            }
+        }
+
+#   endif /* ENABLE_POSIX_CALLS */
+
         pthread_mutex_unlock(&rb->lock);
     }
+
+#   if  ENABLE_POSIX_CALLS
+
+    /*
+     * if we overwritten user's sigaction, now it's time to restore it
+     */
+
+    if (((osa.sa_flags & SA_SIGINFO) == 0 && osa.sa_handler) ||
+        ((osa.sa_flags & SA_SIGINFO) && osa.sa_sigaction))
+    {
+        /*
+         * SIGUSR1 is the only signal we could overwrite
+         */
+
+        sigaction(SIGUSR1, &osa, NULL);
+    }
+
+#   endif /* ENABLE_POSIX_CALLS */
 
     return NULL;
 }
@@ -912,7 +1608,7 @@ static int rb_init_p
     if ((flags & O_MULTITHREAD) == 0)
     {
         /*
-         * when working in non multi-threaded mode, force O_NONBLOCK flag,
+         * when working in non multi-threaded mode, force  O_NONBLOCK  flag,
          * and return, as we don't need to init pthread elements.
          */
 
@@ -923,6 +1619,30 @@ static int rb_init_p
     /*
      * Multithreaded environment
      */
+
+#if ENABLE_POSIX_CALLS
+
+    /*
+     * it may happen that rb will be blocked in read() or  write()  function
+     * and the only way to interrupt such blocked syscall is  to  send  kill
+     * signal to blocked thread. We start with assumption max 2 threads will
+     * concurently try to access rb  object  (most  common  case)  and  will
+     * increase it when needed
+     */
+
+    rb->max_blocked = 2;
+    rb->curr_blocked = 0;
+    rb->signum = SIGUSR1;
+    rb->blocked_threads = calloc(rb->max_blocked,
+        sizeof(struct blocked_threads));
+
+    if (rb->blocked_threads == NULL)
+    {
+        errno = ENOMEM;
+        return -1;
+    }
+
+#endif /* ENABLE_POSIX_CALLS */
 
     rb->stopped_all = -1;
     rb->force_exit = 0;
@@ -961,6 +1681,13 @@ static int rb_cleanup_p
      */
 
     pthread_mutex_lock(&rb->lock);
+
+#   if ENABLE_POSIX_CALLS
+
+    free(rb->blocked_threads);
+
+#   endif /* ENABLE_POSIX_CALLS */
+
     if (rb->stopped_all == 0)
     {
         rb->stopped_all = 1;
@@ -979,7 +1706,7 @@ static int rb_cleanup_p
     return 0;
 }
 
-#endif
+#endif /* ENABLE_THREADS */
 
 /* ==========================================================================
                                         __     __ _
@@ -1192,6 +1919,7 @@ long rb_fd_recv
         return rb_recvs(rb, NULL, fd, count, flags);
     }
 
+    VALID(EINVAL, rb->object_size == 1);
     pthread_mutex_lock(&rb->lock);
     if (rb->force_exit)
     {
@@ -1336,7 +2064,7 @@ long rb_fd_send
 
     VALID(EINVAL, rb);
     VALID(EINVAL, rb->buffer);
-    VALID(EINVAL, fd != -1);
+    VALID(EINVAL, fd >= 0);
 
 #   if ENABLE_THREADS
 
@@ -1345,6 +2073,7 @@ long rb_fd_send
         return rb_sends(rb, NULL, fd, count, flags);
     }
 
+    VALID(EINVAL, rb->object_size == 1);
     pthread_mutex_lock(&rb->lock);
     if (rb->force_exit)
     {
