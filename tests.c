@@ -16,28 +16,51 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <stdint.h>
+#include <limits.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <sys/select.h>
 
 #include "mtest.h"
 
 #include <sys/types.h>
 #include <unistd.h>
+
+#define TEST_BUFFER 0
+#define TEST_FD_FILE 1
+
+#define MULTI_CONSUMERS 0
+#define MULTI_PRODUCERS 1
+
 struct tdata
 {
     struct rb *rb;
     unsigned char *data;
+    int fd;
     int len;
     int objsize;
     size_t buflen;
+    int test_type;
+};
+
+struct multi_data
+{
+    struct rb *rb;
+    const char *pipe;
+    int fd;
 };
 
 static int t_rblen;
 static int t_readlen;
 static int t_writelen;
 static int t_objsize;
+static int t_multi_test_type;
+static int multi;
 
 static int t_num_producers;
 static int t_num_consumers;
-static int data[128];
+static int data[4];
 static pthread_mutex_t multi_mutex;
 static pthread_mutex_t multi_mutex_count;
 static unsigned int multi_index;
@@ -49,13 +72,28 @@ mt_defs();
 static void *consumer(void *arg)
 {
     struct tdata *data = arg;
-    size_t read = 0;
+    size_t r = 0;
 
-    while (read != data->buflen)
+    while (r != data->buflen)
     {
-        size_t left = data->buflen - read;
+        size_t left = data->buflen - r;
         left = left < data->len ? left : data->len;
-        read += rb_read(data->rb, data->data + read * data->objsize, left);
+        r += rb_read(data->rb, data->data + r * data->objsize, left);
+    }
+
+    return data;
+}
+
+static void *producer_file(void *arg)
+{
+    struct tdata *data = arg;
+    size_t w = 0;
+
+    while (w != data->buflen)
+    {
+        size_t left = data->buflen - w;
+        left = left < data->len ? left : data->len;
+        w += rb_fd_write(data->rb, data->fd, left);
     }
 
     return data;
@@ -64,13 +102,28 @@ static void *consumer(void *arg)
 static void *producer(void *arg)
 {
     struct tdata *data = arg;
-    size_t written = 0;
+    size_t w = 0;
 
-    while (written != data->buflen)
+    while (w != data->buflen)
     {
-        size_t left = data->buflen - written;
+        size_t left = data->buflen - w;
         left = left < data->len ? left : data->len;
-        written += rb_write(data->rb, data->data + written * data->objsize, left);
+        w += rb_write(data->rb, data->data + w * data->objsize, left);
+    }
+
+    return data;
+}
+
+static void *consumer_file(void *arg)
+{
+    struct tdata *data = arg;
+    size_t r = 0;
+
+    while (r != data->buflen)
+    {
+        size_t left = data->buflen - r;
+        left = left < data->len ? left : data->len;
+        r += rb_fd_read(data->rb, data->fd, left);
     }
 
     return data;
@@ -78,8 +131,51 @@ static void *producer(void *arg)
 
 static void *multi_producer(void *arg)
 {
-    struct rb *rb = arg;
+    struct multi_data *d = arg;
+    struct rb *rb = d->rb;
+    int fd = d->fd;
     unsigned int index;
+
+    for (;;)
+    {
+        if (fd == -1)
+        {
+            pthread_mutex_lock(&multi_mutex);
+            index = multi_index++;
+            pthread_mutex_unlock(&multi_mutex);
+
+            if (index >= (sizeof(data)/sizeof(*data)))
+            {
+                return NULL;
+            }
+
+            rb_write(rb, &index, 1);
+        }
+        else
+        {
+            if (rb_fd_write(rb, fd, 1) == -1)
+            {
+                if (errno == ECANCELED)
+                {
+                    /*
+                     * stop, no more, rb is not valid any more
+                     */
+
+                    return NULL;
+                }
+            }
+        }
+    }
+}
+
+static void *multi_pipe_producer(void *arg)
+{
+    struct multi_data *d = arg;
+    struct rb *rb = d->rb;
+    unsigned int index;
+    int fd;
+
+    fd = open(d->pipe, O_WRONLY);
 
     for (;;)
     {
@@ -89,28 +185,120 @@ static void *multi_producer(void *arg)
 
         if (index >= (sizeof(data)/sizeof(*data)))
         {
+            close(fd);
             return NULL;
         }
 
-        rb_write(rb, &index, 1);
+        write(fd, &index, sizeof(index));
     }
 }
 
 static void *multi_consumer(void *arg)
 {
-    struct rb *rb = arg;
+    struct multi_data *d = arg;
+    struct rb *rb = d->rb;
+    int fd = d->fd;
     unsigned int index;
 
     for (;;)
     {
         int overflow;
 
-        if (rb_read(rb, &index, 1) == -1)
+        if (fd == -1)
         {
-            /*
-             * force exit received
-             */
+            if (rb_read(rb, &index, 1) == -1)
+            {
+                /*
+                 * force exit received
+                 */
 
+                return NULL;
+            }
+
+            overflow = index >= sizeof(data)/sizeof(*data);
+
+            if (overflow)
+            {
+                continue;
+            }
+
+            data[index] = 1;
+            pthread_mutex_lock(&multi_mutex_count);
+            ++multi_index_count;
+            pthread_mutex_unlock(&multi_mutex_count);
+
+        }
+        else
+        {
+            if (rb_fd_read(rb, fd, 1) == -1)
+            {
+                /*
+                 * force exit received
+                 */
+
+                return NULL;
+            }
+        }
+    }
+}
+
+static void *multi_pipe_consumer(void *arg)
+{
+    struct multi_data *d = arg;
+    struct rb *rb = d->rb;
+    unsigned int index;
+    int fd;
+
+    fd = open(d->pipe, O_RDONLY);
+
+    for (;;)
+    {
+        unsigned int overflow;
+        index = -1u;
+
+        struct timeval tv;
+        fd_set fds;
+        int sact;
+
+        tv.tv_sec = 0;
+        tv.tv_usec = 1000;
+
+        FD_ZERO(&fds);
+        FD_SET(fd, &fds);
+
+        sact = select(fd + 1, &fds, NULL, NULL, &tv);
+
+        if (sact == -1)
+        {
+            perror("select()");
+            close(fd);
+            return NULL;
+        }
+
+        if (sact == 0)
+        {
+            pthread_mutex_lock(&multi_mutex_count);
+            index = multi_index_count;
+            pthread_mutex_unlock(&multi_mutex_count);
+
+            if (index >= sizeof(data)/sizeof(*data))
+            {
+                /*
+                 * we have consumed all there was to consume
+                 */
+
+                close(fd);
+                return NULL;
+            }
+
+            continue;
+        }
+
+
+        if (read(fd, &index, sizeof(index)) == -1)
+        {
+            perror("read()");
+            close(fd);
             return NULL;
         }
 
@@ -132,7 +320,7 @@ static void multi_producers_consumers(void)
 {
     pthread_t *cons;
     pthread_t *prod;
-    struct rb *rb;
+    struct multi_data tdata;
     unsigned int i, r;
     int count;
 
@@ -143,18 +331,19 @@ static void multi_producers_consumers(void)
     cons = malloc(t_num_consumers * sizeof(*cons));
     prod = malloc(t_num_producers * sizeof(*prod));
 
-    rb = rb_new(8, sizeof(unsigned int), O_MULTITHREAD);
+    tdata.rb = rb_new(8, sizeof(unsigned int), O_MULTITHREAD);
+    tdata.fd = -1;
 
     pthread_mutex_init(&multi_mutex, NULL);
     pthread_mutex_init(&multi_mutex_count, NULL);
     for (i = 0; i != t_num_consumers; ++i)
     {
-        pthread_create(&cons[i], NULL, multi_consumer, rb);
+        pthread_create(&cons[i], NULL, multi_consumer, &tdata);
     }
 
     for (i = 0; i != t_num_producers; ++i)
     {
-        pthread_create(&prod[i], NULL, multi_producer, rb);
+        pthread_create(&prod[i], NULL, multi_producer, &tdata);
     }
 
     /*
@@ -173,10 +362,10 @@ static void multi_producers_consumers(void)
          * peeking won't make a difference
          */
 
-        rb_recv(rb, buf, rand() % 16, MSG_PEEK);
+        //rb_recv(tdata.rb, buf, rand() % 16, MSG_PEEK);
     }
 
-    rb_stop(rb);
+    rb_stop(tdata.rb);
 
     for (i = 0; i != t_num_consumers; ++i)
     {
@@ -188,7 +377,7 @@ static void multi_producers_consumers(void)
         pthread_join(prod[i], NULL);
     }
 
-    rb_destroy(rb);
+    rb_destroy(tdata.rb);
 
     for (r = 0, i = 0; i < sizeof(data)/sizeof(*data); ++i)
     {
@@ -209,10 +398,134 @@ static void multi_producers_consumers(void)
     pthread_mutex_destroy(&multi_mutex_count);
 }
 
+static void multi_file_consumer_producer(void)
+{
+    pthread_t *prod;
+    pthread_t *cons;
+    pthread_t pipet;
+
+    struct multi_data prod_data;
+    struct multi_data cons_data;
+    struct multi_data pipe_data;
+    struct rb *rb;
+    int fd;
+    unsigned int i, r;
+    int count;
+
+    multi_index = 0;
+    multi_index_count = 0;
+    count = 0;
+    memset(data, 0, sizeof(data));
+
+    unlink("/tmp/rb-test-fifo");
+    mkfifo("/tmp/rb-test-fifo", 0777);
+
+    rb = rb_new(8, sizeof(unsigned int), O_MULTITHREAD);
+
+    pthread_mutex_init(&multi_mutex, NULL);
+    pthread_mutex_init(&multi_mutex_count, NULL);
+
+    if (multi == MULTI_CONSUMERS)
+    {
+        /*
+         *                   +-cons-+
+         *                  /        \
+         *          +------+          +------+
+         * prod --> |  rb  |---cons---| pipe | --> pipet
+         *          +------+          +------+
+         *                  \        /
+         *                   +-cons-+
+         */
+        prod = malloc(sizeof(*prod));
+        cons = malloc(t_num_consumers * sizeof(*cons));
+
+        pipe_data.pipe = "/tmp/rb-test-fifo";
+        pthread_create(&pipet, NULL, multi_pipe_consumer, &pipe_data);
+
+        prod_data.rb = rb;
+        prod_data.fd = -1;
+        pthread_create(prod, NULL, multi_producer, &prod_data);
+
+        cons_data.rb = rb;
+        cons_data.fd = open("/tmp/rb-test-fifo", O_WRONLY);
+        for (i = 0; i != t_num_consumers; ++i)
+        {
+            pthread_create(&cons[i], NULL, multi_consumer, &cons_data);
+        }
+    }
+    else
+    {
+        prod = malloc(t_num_producers * sizeof(*prod));
+        cons = malloc(sizeof(*cons));
+
+        pipe_data.pipe = "/tmp/rb-test-fifo";
+        pthread_create(&pipet, NULL, multi_pipe_producer, &pipe_data);
+
+        cons_data.rb = rb;
+        cons_data.fd = -1;
+        pthread_create(cons, NULL, multi_consumer, &cons_data);
+
+        prod_data.rb = rb;
+        prod_data.fd = open("/tmp/rb-test-fifo", O_RDONLY);
+        for (i = 0; i != t_num_producers; ++i)
+        {
+            pthread_create(&prod[i], NULL, multi_producer, &prod_data);
+        }
+    }
+
+    while(count < sizeof(data)/sizeof(*data))
+    {
+        int buf[16];
+
+        pthread_mutex_lock(&multi_mutex_count);
+        count = multi_index_count;
+        pthread_mutex_unlock(&multi_mutex_count);
+    }
+
+    rb_stop(rb);
+
+    if (multi == MULTI_CONSUMERS)
+    {
+        for (i = 0; i != t_num_consumers; ++i)
+        {
+            pthread_join(cons[i], NULL);
+        }
+        pthread_join(*prod, NULL);
+        pthread_join(pipet, NULL);
+        close(cons_data.fd);
+    }
+    else
+    {
+        pthread_join(*cons, NULL);
+        pthread_join(pipet, NULL);
+        for (i = 0; i != t_num_producers; ++i)
+        {
+            pthread_join(prod[i], NULL);
+        }
+        close(prod_data.fd);
+    }
+
+    rb_destroy(rb);
+
+    for (r = 0, i = 0; i < sizeof(data)/sizeof(*data); ++i)
+    {
+        r += data[i] != 1;
+    }
+
+    mt_fail(r == 0);
+
+    free(cons);
+    free(prod);
+    pthread_mutex_destroy(&multi_mutex);
+    pthread_mutex_destroy(&multi_mutex_count);
+}
+
 static void multi_thread(void)
 {
     pthread_t cons;
     pthread_t prod;
+    pthread_t cons_file;
+    pthread_t prod_file;
 
     size_t buflen = t_readlen > t_writelen ? t_readlen : t_writelen;
     unsigned char *send_buf = malloc(t_objsize * buflen);
@@ -221,6 +534,7 @@ static void multi_thread(void)
     int rc;
 
     struct rb *rb;
+    struct rb *rb2;
     struct tdata consdata;
     struct tdata proddata;
     static unsigned long c;
@@ -239,18 +553,49 @@ static void multi_thread(void)
     proddata.objsize = t_objsize;
     proddata.rb = rb;
     proddata.buflen = buflen;
+    proddata.fd = -1;
 
     consdata.data = recv_buf;
     consdata.len = t_readlen;
     consdata.objsize = t_objsize;
     consdata.rb = rb;
     consdata.buflen = buflen;
+    consdata.fd = -1;
+
+    if (t_multi_test_type == TEST_FD_FILE)
+    {
+        int fd;
+        int fd2;
+
+        fd2 = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644);
+        fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644);
+        if (fd < 0 || fd2 < 0)
+        {
+            perror("open");
+            mt_assert(0);
+        }
+
+        proddata.fd = fd;
+        consdata.fd = fd2;
+        rb2 = rb_new(t_rblen, t_objsize, O_MULTITHREAD);
+        consdata.rb = rb2;
+
+        pthread_create(&cons_file, NULL, consumer_file, &proddata);
+        pthread_create(&prod_file, NULL, producer_file, &consdata);
+    }
 
     pthread_create(&cons, NULL, consumer, &consdata);
     pthread_create(&prod, NULL, producer, &proddata);
 
     pthread_join(cons, NULL);
     pthread_join(prod, NULL);
+
+    if (t_multi_test_type == TEST_FD_FILE)
+    {
+        pthread_join(cons_file, NULL);
+        pthread_join(prod_file, NULL);
+        rb_destroy(rb2);
+    }
 
     rc = memcmp(send_buf, recv_buf, t_objsize * buflen);
     mt_fail(rc == 0);
@@ -384,6 +729,29 @@ static void peeking(void)
     mt_fail(v[4] == 0);
     mt_fail(v[5] == 0);
 
+    /*
+     * now with overlaped memory
+     */
+
+    memset(v, 0, sizeof(v));
+    mt_fail(rb_discard(rb, 7) == 4);
+    rb_write(rb, d, 6);
+    rb_recv(rb, v, 6, MSG_PEEK);
+    mt_fail(v[0] == 0);
+    mt_fail(v[1] == 1);
+    mt_fail(v[2] == 2);
+    mt_fail(v[3] == 3);
+    mt_fail(v[4] == 4);
+    mt_fail(v[5] == 5);
+    memset(v, 0, sizeof(v));
+    rb_recv(rb, v, 6, MSG_PEEK);
+    mt_fail(v[0] == 0);
+    mt_fail(v[1] == 1);
+    mt_fail(v[2] == 2);
+    mt_fail(v[3] == 3);
+    mt_fail(v[4] == 4);
+    mt_fail(v[5] == 5);
+
     rb_destroy(rb);
 }
 
@@ -420,22 +788,39 @@ static void single_thread(void)
     {
         if (written != buflen)
         {
+            long w;
             if (written + writelen > buflen)
             {
                 writelen = buflen - written;
             }
 
-            written += rb_write(rb, send_buf + written * t_objsize, writelen);
+            w = rb_write(rb, send_buf + written * t_objsize, writelen);
+
+            if (w == -1)
+            {
+                break;
+            }
+
+            written += w;
         }
 
         if (read != buflen)
         {
+            long r;
+
             if (read + readlen > buflen)
             {
                 readlen = buflen - read;
             }
 
-            read+= rb_read(rb, recv_buf + read * t_objsize, readlen);
+            r = rb_read(rb, recv_buf + read * t_objsize, readlen);
+
+            if (r == -1)
+            {
+                break;
+            }
+
+            read += r;
         }
     }
 
@@ -452,6 +837,7 @@ static void single_thread(void)
     free(recv_buf);
     rb_destroy(rb);
 }
+
 
 static void discard(void)
 {
@@ -666,17 +1052,570 @@ static void stack_init(void)
 #endif
 }
 
+static void fd_write_single(void)
+{
+    int fd;
+    int i;
+    int pos;
+    char data[128];
+    char rdata[128];
+    struct rb *rb;
+
+    /*
+     * prepare file with some content to read into rb
+     */
+
+    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    {
+        perror("posix_read_single; prepare; open");
+        mt_assert(0);
+    }
+
+    for (i = 0; i != sizeof(data); ++i)
+    {
+        data[i] = rand() % 127;
+    }
+
+    write(fd, data, sizeof(data));
+    lseek(fd, 0, SEEK_SET);
+
+    rb = rb_new(sizeof(data), sizeof(char), 0);
+
+    /*
+     * now let's read some data from fd to ring buffer
+     */
+
+    mt_fail(rb_fd_write(rb, fd, 100) == 100);
+    mt_fail(rb_read(rb, rdata, 100) == 100);
+    mt_fail(memcmp(rdata, data, 100) == 0);
+
+    mt_fail(rb_fd_write(rb, fd, 100) == 28);
+    mt_fail(rb_read(rb, rdata, 100) == 28);
+    mt_fail(memcmp(rdata, data + 100, 28) == 0);
+
+    rb_destroy(rb);
+    close(fd);
+}
+
+static void fd_write_single_multibyte(void)
+{
+    int fd;
+    int i;
+    int pos;
+    int data[128];
+    int rdata[128];
+    struct rb *rb;
+
+    /*
+     * prepare file with some content to read into rb
+     */
+
+    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    {
+        perror("posix_read_single; prepare; open");
+        mt_assert(0);
+    }
+
+    for (i = 0; i != 128; ++i)
+    {
+        data[i] = rand();
+    }
+
+    write(fd, data, sizeof(data));
+    lseek(fd, 0, SEEK_SET);
+
+    rb = rb_new(128, sizeof(int), 0);
+
+    mt_fail(rb_fd_write(rb, fd, 100) == 100);
+    mt_fail(rb_read(rb, rdata, 100) == 100);
+
+    for (i = 0; i != 100; ++i)
+    {
+        mt_fail(data[i] == rdata[i]);
+    }
+
+    mt_fail(rb_fd_write(rb, fd, 100) == 28);
+    mt_fail(rb_read(rb, rdata, 100) == 28);
+    for (i = 0; i != 28; ++i)
+    {
+        mt_fail(data[i + 100] == rdata[i]);
+    }
+
+    /*
+     * we read all data from file, read() on our fd will return 0 (end of file),
+     * so rb will return 0 as well
+     */
+    mt_fail(rb_fd_write(rb, fd, 10) == 0);
+
+    rb_destroy(rb);
+    close(fd);
+}
+
+static void fd_write_single_overlap(void)
+{
+    int fd;
+    int i;
+    int pos;
+    int data[128];
+    int rdata[128];
+    struct rb *rb;
+
+    /*
+     * prepare file with some content to read into rb
+     */
+
+    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    {
+        perror("posix_read_single; prepare; open");
+        mt_assert(0);
+    }
+
+    for (i = 0; i != 128; ++i)
+    {
+        data[i] = rand();
+    }
+
+    write(fd, data, sizeof(data));
+    lseek(fd, 0, SEEK_SET);
+
+    rb = rb_new(16, sizeof(int), 0);
+
+    /*
+     * cause overlap condition
+     */
+
+    mt_fail(rb_fd_write(rb, fd, 10) == 10);
+    mt_fail(rb_read(rb, rdata, 10) == 10);
+
+    /*
+     * and check overlap set
+     */
+
+    mt_fail(rb_fd_write(rb, fd, 15) == 15);
+    mt_fail(rb_read(rb, rdata, 15) == 15);
+    for (i = 0; i != 15; ++i)
+    {
+        mt_fail(data[i + 10] == rdata[i]);
+    }
+
+    rb_destroy(rb);
+}
+
+static void fd_write_single_partial(void)
+{
+    int fd;
+    int i;
+    int pos;
+    char data[128];
+    char rdata[128];
+    struct rb *rb;
+
+    /*
+     * prepare file with some content to read into rb
+     */
+
+    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    {
+        perror("posix_read_single; prepare; open");
+        mt_assert(0);
+    }
+
+    for (i = 0; i != 128; ++i)
+    {
+        data[i] = rand() % 127;
+    }
+
+    write(fd, data, sizeof(data));
+
+    rb = rb_new(16, 1, 0);
+
+
+    /*
+     * partial read no overlap
+     */
+
+    lseek(fd, 120, SEEK_SET);
+    mt_fail(rb_fd_write(rb, fd, 15) == 8);
+    mt_fail(rb_read(rb, rdata, 15) == 8);
+    mt_fail(memcmp(rdata, data + 120, 8) == 0);
+
+    /*
+     * partial read with overlap
+     */
+
+    lseek(fd, 118, SEEK_SET);
+    mt_fail(rb_fd_write(rb, fd, 15) == 10);
+    mt_fail(rb_read(rb, rdata, 15) == 10);
+    mt_fail(memcmp(rdata, data + 118, 10) == 0);
+
+    /*
+     * partial read, overlap, with first read satisfied fully
+     */
+
+    mt_fok(rb_clear(rb, 0));
+    lseek(fd, 113, SEEK_SET);
+    mt_fail(rb_fd_write(rb, fd, 5) == 5);
+    mt_fail(rb_discard(rb, 5) == 5);
+    mt_fail(rb_fd_write(rb, fd, 15) == 10);
+    mt_fail(rb_read(rb, rdata, 15) == 10);
+    mt_fail(memcmp(rdata, data + 118, 10) == 0);
+
+    close(fd);
+    rb_destroy(rb);
+}
+
+static void fd_write_enosys(void)
+{
+    struct rb *rb;
+    rb = rb_new(16, 1, 0);
+    mt_ferr(rb_fd_write(rb, 0, 1), ENOSYS);
+    mt_ferr(rb_fd_send(rb, 0, 1, 0), ENOSYS);
+}
+
+static void fd_read_single(void)
+{
+    struct rb *rb;
+    int fd;
+    int i;
+    char data[128];
+    char rdata[128];
+
+
+    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    {
+        perror("prepare; open");
+        mt_assert(0);
+    }
+
+    for (i = 0; i != 128; ++i)
+    {
+        data[i] = rand() % 127;
+    }
+
+    rb = rb_new(128, 1, 0);
+
+    mt_fail(rb_write(rb, data, 100) == 100);
+    mt_fail(rb_fd_read(rb, fd, 100) == 100);
+    mt_fail(rb_write(rb, data + 100, 28) == 28);
+    mt_fail(rb_fd_read(rb, fd, 28) == 28);
+
+    lseek(fd, 0, SEEK_SET);
+    mt_fail(read(fd, rdata, 128) == 128);
+    mt_fail(memcmp(data, rdata, 128) == 0);
+    mt_fail(read(fd, rdata, 1) == 0);
+
+    rb_destroy(rb);
+    close(fd);
+}
+
+
+static void fd_read_single_multibyte(void)
+{
+    struct rb *rb;
+    int fd;
+    int i;
+    int data[128];
+    int rdata[128];
+
+
+    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    {
+        perror("prepare; open");
+        mt_assert(0);
+    }
+
+    for (i = 0; i != 128; ++i)
+    {
+        data[i] = rand();
+    }
+
+    rb = rb_new(128, sizeof(int), 0);
+
+    mt_fail(rb_write(rb, data, 100) == 100);
+    mt_fail(rb_fd_read(rb, fd, 100) == 100);
+    mt_fail(rb_write(rb, data + 100, 28) == 28);
+    mt_fail(rb_fd_read(rb, fd, 28) == 28);
+
+    lseek(fd, 0, SEEK_SET);
+    mt_fail(read(fd, rdata, 128 * sizeof(int)) == 128 * sizeof(int));
+
+    for (i = 0; i != 128; ++i)
+    {
+        mt_fail(rdata[i] == data[i]);
+    }
+    mt_fail(read(fd, rdata, 1) == 0);
+
+    rb_destroy(rb);
+    close(fd);
+
+}
+
+static void fd_read_single_overlap(void)
+{
+    struct rb *rb;
+    int fd;
+    int i;
+    char data[128];
+    char rdata[128];
+
+    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    {
+        perror("prepare; open");
+        mt_assert(0);
+    }
+
+    for (i = 0; i != 128; ++i)
+    {
+        data[i] = rand() % 127;
+    }
+
+    rb = rb_new(16, 1, 0);
+
+    /*
+     * cause overlap condition
+     */
+
+    mt_fail(rb_write(rb, data, 10) == 10);
+    mt_fail(rb_fd_read(rb, fd, 10) == 10);
+
+    /*
+     * and check overlap set
+     */
+
+    mt_fail(rb_write(rb, data + 10, 15) == 15);
+    mt_fail(rb_fd_read(rb, fd, 15) == 15);
+
+    lseek(fd, 0, SEEK_SET);
+    mt_fail(read(fd, rdata, 25) == 25);
+    mt_fail(memcmp(rdata, data, 25) == 0);
+    mt_fail(read(fd, rdata, 1) == 0);
+
+    /*
+     * another read to check rb is consistent
+     */
+
+    mt_fail(rb_write(rb, data + 25, 15) == 15);
+    mt_fail(rb_fd_read(rb, fd, 15) == 15);
+
+    lseek(fd, 0, SEEK_SET);
+    mt_fail(read(fd, rdata, 40) == 40);
+    mt_fail(memcmp(rdata, data, 40) == 0);
+    mt_fail(read(fd, rdata, 1) == 0);
+
+    rb_destroy(rb);
+    close(fd);
+}
+
+
+static void fd_read_single_partial(void)
+{
+    struct rb *rb;
+    int fd;
+    int i;
+    char data[128];
+    char rdata[128];
+
+    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    {
+        perror("prepare; open");
+        mt_assert(0);
+    }
+
+    for (i = 0; i != 128; ++i)
+    {
+        data[i] = i;
+    }
+
+    rb = rb_new(16, 1, 0);
+
+    /*
+     * partial write no overlap
+     */
+
+    mt_fail(rb_write(rb, data, 10) == 10);
+    mt_fail(rb_fd_read(rb, fd, 15) == 10);
+
+    lseek(fd, 0, SEEK_SET);
+    mt_fail(read(fd, rdata, 20) == 10);
+    mt_fail(memcmp(rdata, data, 10) == 0);
+
+    /*
+     * partial write with overlap
+     */
+
+    mt_fail(rb_write(rb, data + 10, 15) == 15);
+    mt_fail(rb_fd_read(rb, fd, 20) == 15);
+    lseek(fd, 0, SEEK_SET);
+    mt_fail(read(fd, rdata, 25) == 25);
+    mt_fail(memcmp(rdata, data, 25) == 0);
+
+    /*
+     * partial write, overlap, with first write satisfied fully
+     */
+
+    mt_fok(rb_clear(rb, 0));
+    mt_fail(rb_write(rb, data, 5) == 5);
+    mt_fail(rb_discard(rb, 5) == 5);
+    mt_fail(rb_write(rb, data + 25, 10) == 10);
+    mt_fail(rb_fd_read(rb, fd, 15) == 10);
+    lseek(fd, 0, SEEK_SET);
+    mt_fail(read(fd, rdata, 35) == 35);
+    mt_fail(memcmp(rdata, data, 35) == 0);
+
+    rb_destroy(rb);
+    close(fd);
+}
+
+static void fd_read_single_peek(void)
+{
+    struct rb *rb;
+    int fd;
+    int i;
+    char data[128];
+    char rdata[128];
+
+
+    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    {
+        perror("prepare; open");
+        mt_assert(0);
+    }
+
+    for (i = 0; i != 128; ++i)
+    {
+        data[i] = rand() % 127;
+    }
+
+    rb = rb_new(32, 1, 0);
+
+    mt_fail(rb_write(rb, data, 30) == 30);
+    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+
+    lseek(fd, 0, SEEK_SET);
+    mt_fail(read(fd, rdata, 30) == 30);
+    mt_fail(memcmp(data, rdata, 10) == 0);
+    mt_fail(memcmp(data, rdata + 10, 10) == 0);
+    mt_fail(memcmp(data, rdata + 20, 10) == 0);
+    mt_fail(read(fd, rdata, 1) == 0);
+
+
+    mt_fail(rb_fd_recv(rb, fd, 40, MSG_PEEK) == 30);
+    lseek(fd, 0, SEEK_SET);
+    mt_fail(read(fd, rdata, 60) == 60);
+    mt_fail(memcmp(data, rdata, 10) == 0);
+    mt_fail(memcmp(data, rdata + 10, 10) == 0);
+    mt_fail(memcmp(data, rdata + 20, 10) == 0);
+    mt_fail(memcmp(data, rdata + 30, 30) == 0);
+    mt_fail(read(fd, rdata, 1) == 0);
+
+
+    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+
+    lseek(fd, 0, SEEK_SET);
+    mt_fail(read(fd, rdata, 80) == 80);
+    mt_fail(memcmp(data, rdata, 10) == 0);
+    mt_fail(memcmp(data, rdata + 10, 10) == 0);
+    mt_fail(memcmp(data, rdata + 20, 10) == 0);
+    mt_fail(memcmp(data, rdata + 30, 30) == 0);
+    mt_fail(memcmp(data, rdata + 60, 10) == 0);
+    mt_fail(memcmp(data, rdata + 70, 10) == 0);
+    mt_fail(read(fd, rdata, 1) == 0);
+
+    rb_destroy(rb);
+    close(fd);
+}
+
+static void fd_read_single_peek_overlap(void)
+{
+    struct rb *rb;
+    int fd;
+    int i;
+    char data[128];
+    char rdata[128];
+
+
+    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    {
+        perror("prepare; open");
+        mt_assert(0);
+    }
+
+    for (i = 0; i != 128; ++i)
+    {
+        data[i] = rand() % 127;
+    }
+
+    rb = rb_new(32, 1, 0);
+
+    mt_fail(rb_write(rb, data, 16) == 16);
+    mt_fail(rb_discard(rb, 16) == 16);
+
+    mt_fail(rb_write(rb, data, 30) == 30);
+    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+
+    lseek(fd, 0, SEEK_SET);
+    mt_fail(read(fd, rdata, 30) == 30);
+    mt_fail(memcmp(data, rdata, 10) == 0);
+    mt_fail(memcmp(data, rdata + 10, 10) == 0);
+    mt_fail(memcmp(data, rdata + 20, 10) == 0);
+    mt_fail(read(fd, rdata, 1) == 0);
+
+
+    mt_fail(rb_fd_recv(rb, fd, 40, MSG_PEEK) == 30);
+    lseek(fd, 0, SEEK_SET);
+    mt_fail(read(fd, rdata, 60) == 60);
+    mt_fail(memcmp(data, rdata, 10) == 0);
+    mt_fail(memcmp(data, rdata + 10, 10) == 0);
+    mt_fail(memcmp(data, rdata + 20, 10) == 0);
+    mt_fail(memcmp(data, rdata + 30, 30) == 0);
+    mt_fail(read(fd, rdata, 1) == 0);
+
+
+    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+
+    lseek(fd, 0, SEEK_SET);
+    mt_fail(read(fd, rdata, 80) == 80);
+    mt_fail(memcmp(data, rdata, 10) == 0);
+    mt_fail(memcmp(data, rdata + 10, 10) == 0);
+    mt_fail(memcmp(data, rdata + 20, 10) == 0);
+    mt_fail(memcmp(data, rdata + 30, 30) == 0);
+    mt_fail(memcmp(data, rdata + 60, 10) == 0);
+    mt_fail(memcmp(data, rdata + 70, 10) == 0);
+    mt_fail(read(fd, rdata, 1) == 0);
+
+    rb_destroy(rb);
+    close(fd);
+}
+
+static void fd_read_enosys(void)
+{
+    struct rb *rb;
+    rb = rb_new(16, 1, 0);
+    mt_ferr(rb_fd_read(rb, 0, 1), ENOSYS);
+    mt_ferr(rb_fd_recv(rb, 0, 1, 0), ENOSYS);
+    rb_destroy(rb);
+}
+
+
 int main(void)
 {
-    unsigned int t_rblen_max = 128;
-    unsigned int t_readlen_max = 128;
-    unsigned int t_writelen_max = 128;
-    unsigned int t_objsize_max = 128;
+    srand(time(NULL));
+    //mt_return();
+    unsigned int t_rblen_max = 32;
+    unsigned int t_readlen_max = 32;
+    unsigned int t_writelen_max = 32;
+    unsigned int t_objsize_max = 32;
 
     unsigned int t_num_producers_max = 8;
     unsigned int t_num_consumers_max = 8;
+    char name[128];
 
-    srand(time(NULL));
 
 #if ENABLE_THREADS
     for (t_num_consumers = 1; t_num_consumers <= t_num_consumers_max;
@@ -685,7 +1624,19 @@ int main(void)
         for (t_num_producers = 1; t_num_producers <= t_num_producers_max;
              t_num_producers++)
         {
-            mt_run(multi_producers_consumers);
+            sprintf(name, "multi_producers_consumers producers: %d "
+                "consumers %d", t_num_producers, t_num_consumers);
+            mt_run_named(multi_producers_consumers, name);
+
+            sprintf(name, "multi_file_consumer_producer: MULTI_CONSUMERS "
+                "prod: %d, cons: %d", t_num_producers, t_num_consumers);
+            multi = MULTI_CONSUMERS;
+            mt_run_named(multi_file_consumer_producer, name);
+
+            sprintf(name, "multi_file_consumer_producer: MULTI_PRODUCERS "
+                "prod: %d, cons: %d", t_num_producers, t_num_consumers);
+            multi = MULTI_PRODUCERS;
+            mt_run_named(multi_file_consumer_producer, name);
         }
     }
 #endif
@@ -693,19 +1644,37 @@ int main(void)
     for (t_rblen = 2; t_rblen < t_rblen_max; t_rblen *= 2)
     {
         for (t_readlen = 2; t_readlen < t_readlen_max;
-             t_readlen += rand() % 128)
+             t_readlen *= 2)
         {
             for (t_writelen = 2; t_writelen < t_writelen_max;
-                 t_writelen += rand() % 128)
+                 t_writelen *= 2)
             {
                 for (t_objsize = 2; t_objsize < t_objsize_max;
-                     t_objsize += rand() % 128)
+                     t_objsize *= 2)
                 {
+                    t_multi_test_type = TEST_BUFFER;
 #if ENABLE_THREADS
-                    mt_run(multi_thread);
+                    sprintf(name, "multi_thread with buffer %3d, %3d, %3d, %3d",
+                        t_rblen, t_readlen, t_writelen, t_objsize);
+                    mt_run_named(multi_thread, name);
 #endif
-                    mt_run(single_thread);
+                    sprintf(name, "singl_thread with buffer %3d, %3d, %3d, %3d",
+                        t_rblen, t_readlen, t_writelen, t_objsize);
+                    mt_run_named(single_thread, name);
                 }
+
+                t_objsize = 1;
+
+                t_multi_test_type = TEST_FD_FILE;
+#if ENABLE_THREADS
+                sprintf(name, "multi_thread with file %3d, %3d, %3d, %3d",
+                        t_rblen, t_readlen, t_writelen, t_objsize);
+                mt_run_named(multi_thread, name);
+
+#endif
+                sprintf(name, "singl_thread with file %3d, %3d, %3d, %3d",
+                        t_rblen, t_readlen, t_writelen, t_objsize);
+                mt_run_named(single_thread, name);
             }
         }
     }
@@ -726,5 +1695,20 @@ int main(void)
     mt_run(multithread_eagain);
 #endif
 
+#if ENABLE_POSIX_CALLS
+    mt_run(fd_write_single);
+    mt_run(fd_write_single_multibyte);
+    mt_run(fd_write_single_overlap);
+    mt_run(fd_write_single_partial);
+    mt_run(fd_read_single);
+    mt_run(fd_read_single_multibyte);
+    mt_run(fd_read_single_overlap);
+    mt_run(fd_read_single_partial);
+    mt_run(fd_read_single_peek);
+    mt_run(fd_read_single_peek_overlap);
+#else
+    mt_run(fd_write_enosys);
+    mt_run(fd_read_enosys);
+#endif
     mt_return();
 }
