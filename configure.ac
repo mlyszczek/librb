@@ -7,6 +7,8 @@ AC_CONFIG_FILES([Makefile man/Makefile www/Makefile])
 AC_CONFIG_SRCDIR([configure.ac])
 AC_CONFIG_HEADERS([config.h])
 
+AC_CHECK_HEADERS([assert.h errno.h stddef.h stdlib.h string.h])
+
 ###
 # --enable-threads
 #
@@ -21,6 +23,7 @@ AS_IF([test "x$enable_threads" = "xyes"],
     LIBS="$PTHREAD_LIBS $LIBS"
     CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
     CC="$PTHREAD_CC"
+    AC_CHECK_HEADERS([fcntl.h sys/socket.h sys/time.h])
 
     AC_DEFINE([ENABLE_THREADS], [1], [Enable thread awarness])
 ],
@@ -41,7 +44,7 @@ AS_IF([test "x$enable_posix_calls" = "xyes"],
 [
     AC_DEFINE([ENABLE_POSIX_CALLS], [1], [Enable posix helper functions])
     AC_CHECK_HEADERS(unistd.h)
-    AC_CHECK_FUNCS([read],,
+    AC_CHECK_FUNCS([read write select],,
         AC_MSG_ERROR(not found, needed by --enable-posix-calls))
 ],
 # else
@@ -49,6 +52,24 @@ AS_IF([test "x$enable_posix_calls" = "xyes"],
     enable_posix_calls="no"
 ])
 
+###
+# --enable-trace
+#
+
+AC_ARG_ENABLE([trace],
+    AS_HELP_STRING([--enable-trace], [Enable trace logging from librb]),
+    [enable_trace="yes"], [enable_trace="no"])
+AS_IF([test "x$enable_trace" = "xyes"],
+[
+    AC_DEFINE([TRACE_LOG], [1], [Enable trace logging from librb])
+    AC_CHECK_HEADERS([stdio.h syscall.h unistd.h])
+    AC_CHECK_FUNCS([fprintf],,
+        AC_MSG_ERROR(not found, needed by --enable-trace))
+],
+# else
+[
+    enable_trace="no"
+])
 
 ###
 # --enable-analyzer
@@ -59,4 +80,12 @@ AC_ARG_ENABLE([analyzer],
     [enable_analyzer="yes"], [enable_analyzer="no"])
 AM_CONDITIONAL([ENABLE_ANALYZER], [test "x$enable_analyzer" = "xyes"])
 
+
 AC_OUTPUT
+
+echo
+echo "librb compilation configuration summary"
+echo
+echo "enable threads.........: $enable_threads"
+echo "enable posix calls.....: $enable_posix_calls"
+echo "enable trace messages..: $enable_trace"
