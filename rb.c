@@ -14,10 +14,13 @@
    ========================================================================== */
 
 
+#if HAVE_CONFIG_H
+#   include "config.h"
+#endif /* HAVE_CONFIG_H */
+
 #ifdef TRACE_LOG
 #   define _GNU_SOURCE
 #   include <stdio.h>
-#   include <string.h>
 #   include <syscall.h>
 #   include <unistd.h>
 
@@ -32,10 +35,6 @@
 #else
 #   define trace(x)
 #endif
-
-#if HAVE_CONFIG_H
-#   include "config.h"
-#endif /* HAVE_CONFIG_H */
 
 #if HAVE_ASSERT_H
 #   include <assert.h>
@@ -427,6 +426,7 @@ static int rb_del_blocked_thread
     Number of bytes read or -1 on error.
    ========================================================================== */
 
+
 #if ENABLE_POSIX_CALLS
 
 static long rb_nb_read
@@ -477,7 +477,7 @@ static long rb_nb_read
     return read(fd, dst, count);
 }
 
-#endif /* ENABLE_THREADS && ENABLE_POSIX_CALLS */
+#endif /* ENABLE_POSIX_CALLS */
 
 
 /* ==========================================================================
@@ -1007,7 +1007,6 @@ static long rb_recvt
     trace(("i/ret %zu", r));
     return r;
 }
-
 
 #endif  /* ENABLE_THREADS */
 
