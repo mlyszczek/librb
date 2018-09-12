@@ -14,7 +14,18 @@
    ========================================================================== */
 
 
-#include <stdio.h>
+#ifdef TRACE_LOG
+#   define _GNU_SOURCE
+#   include <stdio.h>
+#   include <string.h>
+#   include <syscall.h>
+#   include <unistd.h>
+
+#   define trace(x, ...) fprintf(stderr, "[%s:%d:%s():%ld] " x "\n", \
+        __FILE__, __LINE__, __func__, syscall(SYS_gettid), ##__VA_ARGS__)
+#else
+#   define trace(x, ...)
+#endif
 
 #if HAVE_CONFIG_H
 #   include "config.h"
@@ -298,6 +309,7 @@ static int rb_add_blocked_thread
 
         memset(rb->blocked_threads + rb->max_blocked / 2, 0x00,
             rb->max_blocked / 2 * sizeof(struct blocked_threads));
+        trace("i/increase blocked size; new size is %d", rb->max_blocked);
     }
 
     /*
@@ -326,6 +338,7 @@ static int rb_add_blocked_thread
         rb->blocked_threads[i].thread = pthread_self();
         rb->blocked_threads[i].valid = 1;
         rb->curr_blocked++;
+        trace("i/slots used: %d, max %d", rb->curr_blocked, rb->max_blocked);
         return 0;
     }
 
@@ -380,6 +393,7 @@ static int rb_del_blocked_thread
 
             rb->blocked_threads[i].valid = 0;
             rb->curr_blocked--;
+            trace("i/slots used %d max %d", rb->curr_blocked, rb->max_blocked);
             return 0;
         }
     }
@@ -547,6 +561,8 @@ static long rb_recvs
     long            w;        /* number of bytes wrote with write() */
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
+    trace("i/fd: %d, count: %zu, flags: %lu", fd, count, flags);
+
     if (count > (rbcount = rb_count_ns(rb)))
     {
         /*
@@ -558,6 +574,7 @@ static long rb_recvs
 
     if (count == 0)
     {
+        trace("e/eagain");
         errno = EAGAIN;
         return -1;
     }
@@ -595,6 +612,7 @@ static long rb_recvs
             rb->tail &= rb->count - 1;
         }
 
+        trace("i/ret %zu", count);
         return count;
 
 #if ENABLE_POSIX_CALLS
@@ -618,6 +636,7 @@ static long rb_recvs
         w = rb_nb_write(fd, rb->buffer + rb->tail * objsize, objsize * cnte);
         if (w == -1)
         {
+            trace("e/write() %s", strerror(errno));
             return -1;
         }
 
@@ -639,17 +658,20 @@ static long rb_recvs
 
             rb->tail += flags & MSG_PEEK ? 0 : tw;
             rb->tail &= rb->count - 1;
+            trace("i/ret %lu", tw);
             return tw;
         }
 
         w = rb_nb_write(fd, rb->buffer, (count - cnte) * objsize);
         if (w == -1)
         {
+            trace("e/write() %s", strerror(errno));
             return -1;
         }
 
         tw += w / objsize;
         rb->tail = flags & MSG_PEEK ? rb->tail : w / objsize;
+        trace("i/ret %lu", tw);
         return tw;
     }
 
@@ -660,11 +682,13 @@ static long rb_recvs
     w = rb_nb_write(fd, rb->buffer + rb->tail * objsize, count * objsize);
     if (w == -1)
     {
+        trace("e/write() %s", strerror(errno));
         return -1;
     }
 
     rb->tail += flags & MSG_PEEK ? 0 : w / objsize;
     rb->tail &= rb->count - 1;
+    trace("i/ret %zu", w / objsize);
     return w / objsize;
 
 #endif /* ENABLE_POSIX_CALLS */
@@ -706,6 +730,7 @@ static long rb_recvt
     errno = 0;
     buf = buffer;
 
+    trace("i/fd: %d, count: %zu, flags: %lu", fd, count, flags);
     while (count)
     {
         size_t  count_to_end;
@@ -714,6 +739,7 @@ static long rb_recvt
         /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 
+        trace("lock");
         pthread_mutex_lock(&rb->lock);
 
         while (rb_count_ns(rb) == 0 && rb->force_exit == 0)
@@ -730,6 +756,7 @@ static long rb_recvt
             if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
             {
                 pthread_mutex_unlock(&rb->lock);
+                trace("unlock");
 
                 if (r == 0)
                 {
@@ -738,6 +765,7 @@ static long rb_recvt
                      * this is how standard posix read/send works
                      */
 
+                    trace("e/eagain");
                     errno = EAGAIN;
                     return -1;
                 }
@@ -772,6 +800,8 @@ static long rb_recvt
              */
 
             pthread_mutex_unlock(&rb->lock);
+            trace("unlock");
+            trace("i/force exit");
             return -1;
         }
 
@@ -819,6 +849,7 @@ static long rb_recvt
             }
 
             pthread_mutex_unlock(&rb->lock);
+            trace("unlock");
 
             tv.tv_sec = 0;
             tv.tv_usec = 0;
@@ -835,28 +866,34 @@ static long rb_recvt
                 sact = select(fd + 1, NULL, &fds, NULL, NULL);
             }
 
+            trace("lock");
             pthread_mutex_lock(&rb->lock);
             rb_del_blocked_thread(rb);
 
             if (sact == -1)
             {
+                trace("e/select() %s", strerror(errno));
                 pthread_mutex_unlock(&rb->lock);
+                trace("unlock");
                 return -1;
             }
 
             if (sact == 0)
             {
                 pthread_mutex_unlock(&rb->lock);
+                trace("unlock");
 
                 if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
                 {
 
                     if (r == 0)
                     {
+                        trace("w/select() timeout, eagain");
                         errno = EAGAIN;
                         return -1;
                     }
 
+                    trace("i/select() timeout, ret %zu", r);
                     return r;
                 }
 
@@ -868,7 +905,9 @@ static long rb_recvt
 
             if (w == -1)
             {
+                trace("e/write() %s", strerror(errno));
                 pthread_mutex_unlock(&rb->lock);
+                trace("unlock");
 
                 if (errno == EAGAIN)
                 {
@@ -881,6 +920,7 @@ static long rb_recvt
                          * didn't take anything from rb
                          */
 
+                        trace("i/ret %zu", r ? r : -1);
                         return r ? r : -1;
                     }
 
@@ -900,6 +940,7 @@ static long rb_recvt
                  * there was any error
                  */
 
+                trace("i/ret %zu", r ? r : -1);
                 return r ? r : -1;
             }
 
@@ -929,8 +970,10 @@ static long rb_recvt
 
         pthread_cond_signal(&rb->wait_room);
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
     }
 
+    trace("i/ret %zu", r);
     return r;
 }
 
@@ -966,6 +1009,7 @@ static long rb_sends
     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
     (void)flags;
+    trace("i/fd: %d, count: %zu, flags: %lu", fd, count, flags);
 
     if (count > (rbspace = rb_space_ns(rb)))
     {
@@ -978,6 +1022,7 @@ static long rb_sends
 
     if (count == 0)
     {
+        trace("e/eagain");
         errno = EAGAIN;
         return -1;
     }
@@ -1014,6 +1059,7 @@ static long rb_sends
             rb->head &= rb->count - 1;
         }
 
+        trace("i/ret %zu", count);
         return count;
 
 #if ENABLE_POSIX_CALLS
@@ -1034,6 +1080,7 @@ static long rb_sends
 
         if (r == -1)
         {
+            trace("e/read() %s", strerror(errno));
             return -1;
         }
 
@@ -1054,6 +1101,7 @@ static long rb_sends
 
             rb->head += tr;
             rb->head &= rb->count -1;
+            trace("i/ret %ld", tr);
             return tr;
         }
 
@@ -1061,6 +1109,7 @@ static long rb_sends
 
         if (r == -1)
         {
+            trace("e/read() %s", strerror(errno));
             return -1;
         }
 
@@ -1076,6 +1125,7 @@ static long rb_sends
          * and we return number of elements totaly read from read()
          */
 
+        trace("i/ret %ld", tr);
         return tr;
     }
 
@@ -1088,11 +1138,13 @@ static long rb_sends
 
     if (r == -1)
     {
+        trace("e/read() %s", strerror(errno));
         return -1;
     }
 
     rb->head += r / objsize;
     rb->head &= rb->count -1;
+    trace("i/ret %zu", r / objsize);
     return r / objsize;
 
 #endif /* ENABLE_POSIX_CALLS */
@@ -1132,6 +1184,7 @@ long rb_sendt
 
     w = 0;
     buf = buffer;
+    trace("i/fd: %d, count: %zu, flags: %lu", fd, count, flags);
 
     while (count)
     {
@@ -1141,6 +1194,7 @@ long rb_sendt
         /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 
+        trace("lock");
         pthread_mutex_lock(&rb->lock);
 
         while (rb_space_ns(rb) == 0 && rb->force_exit == 0)
@@ -1157,6 +1211,7 @@ long rb_sendt
             if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
             {
                 pthread_mutex_unlock(&rb->lock);
+                trace("unlock");
 
                 if (w == 0)
                 {
@@ -1169,6 +1224,7 @@ long rb_sendt
                     return -1;
                 }
 
+                trace("i/ret %zu", w);
                 return w;
             }
 
@@ -1200,6 +1256,8 @@ long rb_sendt
              */
 
             pthread_mutex_unlock(&rb->lock);
+            trace("unlock");
+            trace("i/force exit");
             return -1;
         }
 
@@ -1260,6 +1318,7 @@ long rb_sendt
              */
 
             pthread_mutex_unlock(&rb->lock);
+            trace("unlock");
 
             tv.tv_sec = 0;
             tv.tv_usec = 0;
@@ -1284,12 +1343,15 @@ long rb_sendt
                 sact = select(fd + 1, &fds, NULL, NULL, NULL);
             }
 
+            trace("lock");
             pthread_mutex_lock(&rb->lock);
             rb_del_blocked_thread(rb);
 
             if (sact == -1)
             {
+                trace("e/select() %s", strerror(errno));
                 pthread_mutex_unlock(&rb->lock);
+                trace("unlock");
                 return -1;
             }
 
@@ -1300,6 +1362,7 @@ long rb_sendt
                  */
 
                 pthread_mutex_unlock(&rb->lock);
+                trace("unlock");
 
                 if (rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT)
                 {
@@ -1311,9 +1374,11 @@ long rb_sendt
                     if (w == 0)
                     {
                         errno = EAGAIN;
+                        trace("w/select() timeout, eagain");
                         return -1;
                     }
 
+                    trace("i/select() timeout, return %zu", w);
                     return w;
                 }
 
@@ -1360,6 +1425,7 @@ long rb_sendt
             if (r == -1)
             {
                 pthread_mutex_unlock(&rb->lock);
+                trace("unlock");
 
                 if (errno == EAGAIN)
                 {
@@ -1372,6 +1438,7 @@ long rb_sendt
                          * didn't take anything from rb
                          */
 
+                        trace("w/read() eagain, ret: %zu", w ? w : -1);
                         return w ? w : -1;
                     }
 
@@ -1391,6 +1458,7 @@ long rb_sendt
                  * there was any error
                  */
 
+                trace("e/read() %s, ret: %zu", strerror(errno), w ? w : -1);
                 return w ? w : -1;
             }
 
@@ -1420,8 +1488,10 @@ long rb_sendt
 
         pthread_cond_signal(&rb->wait_data);
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
     }
 
+    trace("i/ret %zu", w);
     return w;
 }
 
@@ -1454,10 +1524,13 @@ static void *rb_stop_thread
 
     rb = arg;
     stopped = 0;
+    trace("starting");
 
+    trace("lock");
     pthread_mutex_lock(&rb->lock);
     rb->force_exit = 1;
     pthread_mutex_unlock(&rb->lock);
+    trace("unlock");
 
 #   if ENABLE_POSIX_CALLS
 
@@ -1486,6 +1559,7 @@ static void *rb_stop_thread
          * save his sorry ass by installing default sigaction.
          */
 
+        trace("e/sigaction() %s", strerror(errno));
         sigaction(SIGUSR1, &sa, &osa);
     }
 
@@ -1499,6 +1573,7 @@ static void *rb_stop_thread
 
     while (stopped != 1)
     {
+        trace("lock");
         pthread_mutex_lock(&rb->lock);
         pthread_cond_signal(&rb->wait_data);
         pthread_cond_signal(&rb->wait_room);
@@ -1516,6 +1591,7 @@ static void *rb_stop_thread
         if (now != prev)
         {
             prev = now;
+            trace("i/sending kill");
             for (i = 0; i != rb->max_blocked; ++i)
             {
                 if (rb->curr_blocked == 0)
@@ -1536,7 +1612,6 @@ static void *rb_stop_thread
                     continue;
                 }
 
-                fprintf(stderr, "killing %d\n", i);
                 pthread_kill(rb->blocked_threads[i].thread, rb->signum);
             }
         }
@@ -1544,6 +1619,7 @@ static void *rb_stop_thread
 #   endif /* ENABLE_POSIX_CALLS */
 
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
     }
 
 #   if  ENABLE_POSIX_CALLS
@@ -1564,6 +1640,7 @@ static void *rb_stop_thread
 
 #   endif /* ENABLE_POSIX_CALLS */
 
+    trace("return NULL");
     return NULL;
 }
 
@@ -1589,6 +1666,7 @@ static int rb_init_p
 #endif
 
     VALID(EINVAL, rb_is_power_of_two(count) == 1);
+    trace("init rb %p", rb);
 
     rb->head = 0;
     rb->tail = 0;
@@ -1680,6 +1758,7 @@ static int rb_cleanup_p
      * caller made sure all threads are stopped before calling destroy.
      */
 
+    trace("lock");
     pthread_mutex_lock(&rb->lock);
 
 #   if ENABLE_POSIX_CALLS
@@ -1692,11 +1771,13 @@ static int rb_cleanup_p
     {
         rb->stopped_all = 1;
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
         pthread_join(rb->stop_thread, NULL);
     }
     else
     {
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
     }
 
     pthread_cond_destroy(&rb->wait_data);
@@ -1846,14 +1927,17 @@ long rb_recv
         return rb_recvs(rb, buffer, -1, count, flags);
     }
 
+    trace("lock");
     pthread_mutex_lock(&rb->lock);
     if (rb->force_exit)
     {
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
         errno = ECANCELED;
         return -1;
     }
     pthread_mutex_unlock(&rb->lock);
+    trace("unlock");
 
     if (flags & MSG_PEEK)
     {
@@ -1863,9 +1947,11 @@ long rb_recv
          * deadlock
          */
 
+        trace("lock");
         pthread_mutex_lock(&rb->lock);
         count = rb_recvs(rb, buffer, -1, count, flags);
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
         return count;
     }
 
@@ -1920,14 +2006,17 @@ long rb_fd_recv
     }
 
     VALID(EINVAL, rb->object_size == 1);
+    trace("lock");
     pthread_mutex_lock(&rb->lock);
     if (rb->force_exit)
     {
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
         errno = ECANCELED;
         return -1;
     }
     pthread_mutex_unlock(&rb->lock);
+    trace("unlock");
 
     if (flags & MSG_PEEK)
     {
@@ -1937,9 +2026,11 @@ long rb_fd_recv
          * deadlock
          */
 
+        trace("lock");
         pthread_mutex_lock(&rb->lock);
         count = rb_recvs(rb, NULL, fd, count, flags);
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
         return count;
     }
 
@@ -2014,14 +2105,17 @@ long rb_send
         return rb_sends(rb, buffer, -1, count, flags);
     }
 
+    trace("lock");
     pthread_mutex_lock(&rb->lock);
     if (rb->force_exit)
     {
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
         errno = ECANCELED;
         return -1;
     }
     pthread_mutex_unlock(&rb->lock);
+    trace("unlock");
 
     return rb_sendt(rb, buffer, -1, count, flags);
 #else
@@ -2074,14 +2168,17 @@ long rb_fd_send
     }
 
     VALID(EINVAL, rb->object_size == 1);
+    trace("lock");
     pthread_mutex_lock(&rb->lock);
     if (rb->force_exit)
     {
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
         errno = ECANCELED;
         return -1;
     }
     pthread_mutex_unlock(&rb->lock);
+    trace("unlock");
 
     return rb_sendt(rb, NULL, fd, count, flags);
 
@@ -2121,6 +2218,7 @@ int rb_clear
 #if ENABLE_THREADS
     if ((rb->flags & O_NONBLOCK) == 0)
     {
+        trace("lock");
         pthread_mutex_lock(&rb->lock);
     }
 #endif
@@ -2137,6 +2235,7 @@ int rb_clear
     if ((rb->flags & O_NONBLOCK) == 0)
     {
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
     }
 #endif
 
@@ -2262,6 +2361,7 @@ long rb_discard
 #if ENABLE_THREADS
     if ((rb->flags & O_NONBLOCK) == 0)
     {
+        trace("lock");
         pthread_mutex_lock(&rb->lock);
     }
 #endif
@@ -2288,6 +2388,7 @@ long rb_discard
     if ((rb->flags & O_NONBLOCK) == 0)
     {
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
     }
 #endif
 
@@ -2343,6 +2444,7 @@ long rb_count
 #if ENABLE_THREADS
     if ((rb->flags & O_NONBLOCK) == 0)
     {
+        trace("lock");
         pthread_mutex_lock(&rb->lock);
     }
 #endif
@@ -2353,6 +2455,7 @@ long rb_count
     if ((rb->flags & O_NONBLOCK) == 0)
     {
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
     }
 #endif
 
@@ -2380,6 +2483,7 @@ long rb_space
 #if ENABLE_THREADS
     if ((rb->flags & O_NONBLOCK) == 0)
     {
+        trace("lock");
         pthread_mutex_lock(&rb->lock);
     }
 #endif
@@ -2390,6 +2494,7 @@ long rb_space
     if ((rb->flags & O_NONBLOCK) == 0)
     {
         pthread_mutex_unlock(&rb->lock);
+        trace("unlock");
     }
 #endif
 
