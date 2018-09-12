@@ -1628,6 +1628,8 @@ int main(void)
                 "consumers %d", t_num_producers, t_num_consumers);
             mt_run_named(multi_producers_consumers, name);
 
+#   if ENABLE_POSIX_CALLS
+
             sprintf(name, "multi_file_consumer_producer: MULTI_CONSUMERS "
                 "prod: %d, cons: %d", t_num_producers, t_num_consumers);
             multi = MULTI_CONSUMERS;
@@ -1637,6 +1639,9 @@ int main(void)
                 "prod: %d, cons: %d", t_num_producers, t_num_consumers);
             multi = MULTI_PRODUCERS;
             mt_run_named(multi_file_consumer_producer, name);
+
+#   endif
+
         }
     }
 #endif
@@ -1653,28 +1658,38 @@ int main(void)
                      t_objsize *= 2)
                 {
                     t_multi_test_type = TEST_BUFFER;
+
 #if ENABLE_THREADS
+
                     sprintf(name, "multi_thread with buffer %3d, %3d, %3d, %3d",
                         t_rblen, t_readlen, t_writelen, t_objsize);
                     mt_run_named(multi_thread, name);
+
 #endif
+
                     sprintf(name, "singl_thread with buffer %3d, %3d, %3d, %3d",
                         t_rblen, t_readlen, t_writelen, t_objsize);
                     mt_run_named(single_thread, name);
-                }
 
-                t_objsize = 1;
+#if ENABLE_POSIX_CALLS
 
-                t_multi_test_type = TEST_FD_FILE;
-#if ENABLE_THREADS
-                sprintf(name, "multi_thread with file %3d, %3d, %3d, %3d",
-                        t_rblen, t_readlen, t_writelen, t_objsize);
-                mt_run_named(multi_thread, name);
+                    t_multi_test_type = TEST_FD_FILE;
+
+#   if ENABLE_THREADS
+
+                    sprintf(name, "multi_thread with file %3d, %3d, %3d, %3d",
+                            t_rblen, t_readlen, t_writelen, t_objsize);
+                    mt_run_named(multi_thread, name);
+
+#   endif
+
+                    sprintf(name, "singl_thread with file %3d, %3d, %3d, %3d",
+                            t_rblen, t_readlen, t_writelen, t_objsize);
+                    mt_run_named(single_thread, name);
 
 #endif
-                sprintf(name, "singl_thread with file %3d, %3d, %3d, %3d",
-                        t_rblen, t_readlen, t_writelen, t_objsize);
-                mt_run_named(single_thread, name);
+
+                }
             }
         }
     }
