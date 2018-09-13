@@ -93,7 +93,7 @@ static void *producer_file(void *arg)
     {
         size_t left = data->buflen - w;
         left = left < data->len ? left : data->len;
-        w += rb_fd_write(data->rb, data->fd, left);
+        w += rb_posix_write(data->rb, data->fd, left);
     }
 
     return data;
@@ -123,7 +123,7 @@ static void *consumer_file(void *arg)
     {
         size_t left = data->buflen - r;
         left = left < data->len ? left : data->len;
-        r += rb_fd_read(data->rb, data->fd, left);
+        r += rb_posix_read(data->rb, data->fd, left);
     }
 
     return data;
@@ -153,7 +153,7 @@ static void *multi_producer(void *arg)
         }
         else
         {
-            if (rb_fd_write(rb, fd, 1) == -1)
+            if (rb_posix_write(rb, fd, 1) == -1)
             {
                 if (errno == ECANCELED)
                 {
@@ -230,7 +230,7 @@ static void *multi_consumer(void *arg)
         }
         else
         {
-            if (rb_fd_read(rb, fd, 1) == -1)
+            if (rb_posix_read(rb, fd, 1) == -1)
             {
                 /*
                  * force exit received
@@ -362,7 +362,7 @@ static void multi_producers_consumers(void)
          * peeking won't make a difference
          */
 
-        //rb_recv(tdata.rb, buf, rand() % 16, MSG_PEEK);
+        rb_recv(tdata.rb, buf, rand() % 16, MSG_PEEK);
     }
 
     rb_stop(tdata.rb);
@@ -480,6 +480,8 @@ static void multi_file_consumer_producer(void)
         pthread_mutex_lock(&multi_mutex_count);
         count = multi_index_count;
         pthread_mutex_unlock(&multi_mutex_count);
+
+        rb_recv(rb, buf, rand() % 16, MSG_PEEK);
     }
 
     rb_stop(rb);
@@ -1085,11 +1087,11 @@ static void fd_write_single(void)
      * now let's read some data from fd to ring buffer
      */
 
-    mt_fail(rb_fd_write(rb, fd, 100) == 100);
+    mt_fail(rb_posix_write(rb, fd, 100) == 100);
     mt_fail(rb_read(rb, rdata, 100) == 100);
     mt_fail(memcmp(rdata, data, 100) == 0);
 
-    mt_fail(rb_fd_write(rb, fd, 100) == 28);
+    mt_fail(rb_posix_write(rb, fd, 100) == 28);
     mt_fail(rb_read(rb, rdata, 100) == 28);
     mt_fail(memcmp(rdata, data + 100, 28) == 0);
 
@@ -1126,7 +1128,7 @@ static void fd_write_single_multibyte(void)
 
     rb = rb_new(128, sizeof(int), 0);
 
-    mt_fail(rb_fd_write(rb, fd, 100) == 100);
+    mt_fail(rb_posix_write(rb, fd, 100) == 100);
     mt_fail(rb_read(rb, rdata, 100) == 100);
 
     for (i = 0; i != 100; ++i)
@@ -1134,7 +1136,7 @@ static void fd_write_single_multibyte(void)
         mt_fail(data[i] == rdata[i]);
     }
 
-    mt_fail(rb_fd_write(rb, fd, 100) == 28);
+    mt_fail(rb_posix_write(rb, fd, 100) == 28);
     mt_fail(rb_read(rb, rdata, 100) == 28);
     for (i = 0; i != 28; ++i)
     {
@@ -1145,7 +1147,7 @@ static void fd_write_single_multibyte(void)
      * we read all data from file, read() on our fd will return 0 (end of file),
      * so rb will return 0 as well
      */
-    mt_fail(rb_fd_write(rb, fd, 10) == 0);
+    mt_fail(rb_posix_write(rb, fd, 10) == 0);
 
     rb_destroy(rb);
     close(fd);
@@ -1184,14 +1186,14 @@ static void fd_write_single_overlap(void)
      * cause overlap condition
      */
 
-    mt_fail(rb_fd_write(rb, fd, 10) == 10);
+    mt_fail(rb_posix_write(rb, fd, 10) == 10);
     mt_fail(rb_read(rb, rdata, 10) == 10);
 
     /*
      * and check overlap set
      */
 
-    mt_fail(rb_fd_write(rb, fd, 15) == 15);
+    mt_fail(rb_posix_write(rb, fd, 15) == 15);
     mt_fail(rb_read(rb, rdata, 15) == 15);
     for (i = 0; i != 15; ++i)
     {
@@ -1235,7 +1237,7 @@ static void fd_write_single_partial(void)
      */
 
     lseek(fd, 120, SEEK_SET);
-    mt_fail(rb_fd_write(rb, fd, 15) == 8);
+    mt_fail(rb_posix_write(rb, fd, 15) == 8);
     mt_fail(rb_read(rb, rdata, 15) == 8);
     mt_fail(memcmp(rdata, data + 120, 8) == 0);
 
@@ -1244,7 +1246,7 @@ static void fd_write_single_partial(void)
      */
 
     lseek(fd, 118, SEEK_SET);
-    mt_fail(rb_fd_write(rb, fd, 15) == 10);
+    mt_fail(rb_posix_write(rb, fd, 15) == 10);
     mt_fail(rb_read(rb, rdata, 15) == 10);
     mt_fail(memcmp(rdata, data + 118, 10) == 0);
 
@@ -1254,9 +1256,9 @@ static void fd_write_single_partial(void)
 
     mt_fok(rb_clear(rb, 0));
     lseek(fd, 113, SEEK_SET);
-    mt_fail(rb_fd_write(rb, fd, 5) == 5);
+    mt_fail(rb_posix_write(rb, fd, 5) == 5);
     mt_fail(rb_discard(rb, 5) == 5);
-    mt_fail(rb_fd_write(rb, fd, 15) == 10);
+    mt_fail(rb_posix_write(rb, fd, 15) == 10);
     mt_fail(rb_read(rb, rdata, 15) == 10);
     mt_fail(memcmp(rdata, data + 118, 10) == 0);
 
@@ -1268,8 +1270,8 @@ static void fd_write_enosys(void)
 {
     struct rb *rb;
     rb = rb_new(16, 1, 0);
-    mt_ferr(rb_fd_write(rb, 0, 1), ENOSYS);
-    mt_ferr(rb_fd_send(rb, 0, 1, 0), ENOSYS);
+    mt_ferr(rb_posix_write(rb, 0, 1), ENOSYS);
+    mt_ferr(rb_posix_send(rb, 0, 1, 0), ENOSYS);
 }
 
 static void fd_read_single(void)
@@ -1295,9 +1297,9 @@ static void fd_read_single(void)
     rb = rb_new(128, 1, 0);
 
     mt_fail(rb_write(rb, data, 100) == 100);
-    mt_fail(rb_fd_read(rb, fd, 100) == 100);
+    mt_fail(rb_posix_read(rb, fd, 100) == 100);
     mt_fail(rb_write(rb, data + 100, 28) == 28);
-    mt_fail(rb_fd_read(rb, fd, 28) == 28);
+    mt_fail(rb_posix_read(rb, fd, 28) == 28);
 
     lseek(fd, 0, SEEK_SET);
     mt_fail(read(fd, rdata, 128) == 128);
@@ -1332,9 +1334,9 @@ static void fd_read_single_multibyte(void)
     rb = rb_new(128, sizeof(int), 0);
 
     mt_fail(rb_write(rb, data, 100) == 100);
-    mt_fail(rb_fd_read(rb, fd, 100) == 100);
+    mt_fail(rb_posix_read(rb, fd, 100) == 100);
     mt_fail(rb_write(rb, data + 100, 28) == 28);
-    mt_fail(rb_fd_read(rb, fd, 28) == 28);
+    mt_fail(rb_posix_read(rb, fd, 28) == 28);
 
     lseek(fd, 0, SEEK_SET);
     mt_fail(read(fd, rdata, 128 * sizeof(int)) == 128 * sizeof(int));
@@ -1376,14 +1378,14 @@ static void fd_read_single_overlap(void)
      */
 
     mt_fail(rb_write(rb, data, 10) == 10);
-    mt_fail(rb_fd_read(rb, fd, 10) == 10);
+    mt_fail(rb_posix_read(rb, fd, 10) == 10);
 
     /*
      * and check overlap set
      */
 
     mt_fail(rb_write(rb, data + 10, 15) == 15);
-    mt_fail(rb_fd_read(rb, fd, 15) == 15);
+    mt_fail(rb_posix_read(rb, fd, 15) == 15);
 
     lseek(fd, 0, SEEK_SET);
     mt_fail(read(fd, rdata, 25) == 25);
@@ -1395,7 +1397,7 @@ static void fd_read_single_overlap(void)
      */
 
     mt_fail(rb_write(rb, data + 25, 15) == 15);
-    mt_fail(rb_fd_read(rb, fd, 15) == 15);
+    mt_fail(rb_posix_read(rb, fd, 15) == 15);
 
     lseek(fd, 0, SEEK_SET);
     mt_fail(read(fd, rdata, 40) == 40);
@@ -1433,7 +1435,7 @@ static void fd_read_single_partial(void)
      */
 
     mt_fail(rb_write(rb, data, 10) == 10);
-    mt_fail(rb_fd_read(rb, fd, 15) == 10);
+    mt_fail(rb_posix_read(rb, fd, 15) == 10);
 
     lseek(fd, 0, SEEK_SET);
     mt_fail(read(fd, rdata, 20) == 10);
@@ -1444,7 +1446,7 @@ static void fd_read_single_partial(void)
      */
 
     mt_fail(rb_write(rb, data + 10, 15) == 15);
-    mt_fail(rb_fd_read(rb, fd, 20) == 15);
+    mt_fail(rb_posix_read(rb, fd, 20) == 15);
     lseek(fd, 0, SEEK_SET);
     mt_fail(read(fd, rdata, 25) == 25);
     mt_fail(memcmp(rdata, data, 25) == 0);
@@ -1457,7 +1459,7 @@ static void fd_read_single_partial(void)
     mt_fail(rb_write(rb, data, 5) == 5);
     mt_fail(rb_discard(rb, 5) == 5);
     mt_fail(rb_write(rb, data + 25, 10) == 10);
-    mt_fail(rb_fd_read(rb, fd, 15) == 10);
+    mt_fail(rb_posix_read(rb, fd, 15) == 10);
     lseek(fd, 0, SEEK_SET);
     mt_fail(read(fd, rdata, 35) == 35);
     mt_fail(memcmp(rdata, data, 35) == 0);
@@ -1489,9 +1491,9 @@ static void fd_read_single_peek(void)
     rb = rb_new(32, 1, 0);
 
     mt_fail(rb_write(rb, data, 30) == 30);
-    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
-    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
-    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_posix_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_posix_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_posix_recv(rb, fd, 10, MSG_PEEK) == 10);
 
     lseek(fd, 0, SEEK_SET);
     mt_fail(read(fd, rdata, 30) == 30);
@@ -1501,7 +1503,7 @@ static void fd_read_single_peek(void)
     mt_fail(read(fd, rdata, 1) == 0);
 
 
-    mt_fail(rb_fd_recv(rb, fd, 40, MSG_PEEK) == 30);
+    mt_fail(rb_posix_recv(rb, fd, 40, MSG_PEEK) == 30);
     lseek(fd, 0, SEEK_SET);
     mt_fail(read(fd, rdata, 60) == 60);
     mt_fail(memcmp(data, rdata, 10) == 0);
@@ -1511,8 +1513,8 @@ static void fd_read_single_peek(void)
     mt_fail(read(fd, rdata, 1) == 0);
 
 
-    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
-    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_posix_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_posix_recv(rb, fd, 10, MSG_PEEK) == 10);
 
     lseek(fd, 0, SEEK_SET);
     mt_fail(read(fd, rdata, 80) == 80);
@@ -1554,9 +1556,9 @@ static void fd_read_single_peek_overlap(void)
     mt_fail(rb_discard(rb, 16) == 16);
 
     mt_fail(rb_write(rb, data, 30) == 30);
-    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
-    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
-    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_posix_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_posix_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_posix_recv(rb, fd, 10, MSG_PEEK) == 10);
 
     lseek(fd, 0, SEEK_SET);
     mt_fail(read(fd, rdata, 30) == 30);
@@ -1566,7 +1568,7 @@ static void fd_read_single_peek_overlap(void)
     mt_fail(read(fd, rdata, 1) == 0);
 
 
-    mt_fail(rb_fd_recv(rb, fd, 40, MSG_PEEK) == 30);
+    mt_fail(rb_posix_recv(rb, fd, 40, MSG_PEEK) == 30);
     lseek(fd, 0, SEEK_SET);
     mt_fail(read(fd, rdata, 60) == 60);
     mt_fail(memcmp(data, rdata, 10) == 0);
@@ -1576,8 +1578,8 @@ static void fd_read_single_peek_overlap(void)
     mt_fail(read(fd, rdata, 1) == 0);
 
 
-    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
-    mt_fail(rb_fd_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_posix_recv(rb, fd, 10, MSG_PEEK) == 10);
+    mt_fail(rb_posix_recv(rb, fd, 10, MSG_PEEK) == 10);
 
     lseek(fd, 0, SEEK_SET);
     mt_fail(read(fd, rdata, 80) == 80);
@@ -1597,8 +1599,8 @@ static void fd_read_enosys(void)
 {
     struct rb *rb;
     rb = rb_new(16, 1, 0);
-    mt_ferr(rb_fd_read(rb, 0, 1), ENOSYS);
-    mt_ferr(rb_fd_recv(rb, 0, 1, 0), ENOSYS);
+    mt_ferr(rb_posix_read(rb, 0, 1), ENOSYS);
+    mt_ferr(rb_posix_recv(rb, 0, 1, 0), ENOSYS);
     rb_destroy(rb);
 }
 

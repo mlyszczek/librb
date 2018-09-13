@@ -2011,23 +2011,23 @@ long rb_recv
    ========================================================================== */
 
 
-long rb_fd_read
+long rb_posix_read
 (
     struct rb  *rb,    /* rb object */
     int         fd,    /* file descriptor data from rb will be copied to */
     size_t      count  /* requested number of elements to be copied from rb */
 )
 {
-    return rb_fd_recv(rb, fd, count, 0);
+    return rb_posix_recv(rb, fd, count, 0);
 }
 
 
 /* ==========================================================================
-    Same as rb_fd_read but also accepts flags
+    Same as rb_posix_read but also accepts flags
    ========================================================================== */
 
 
-long rb_fd_recv
+long rb_posix_recv
 (
     struct rb     *rb,    /* rb object */
     int            fd,    /* file descriptor data from rb will be copied to */
@@ -2172,23 +2172,23 @@ long rb_send
    ========================================================================== */
 
 
-long rb_fd_write
+long rb_posix_write
 (
     struct rb   *rb,      /* rb object */
     int          fd,      /* file descriptor from which copy data to buffer */
     size_t       count    /* requested number of elements to be put into rb */
 )
 {
-    return rb_fd_send(rb, fd, count, 0);
+    return rb_posix_send(rb, fd, count, 0);
 }
 
 
 /* ==========================================================================
-    Same as rb_fd_write but also accepts 'flags'
+    Same as rb_posix_write but also accepts 'flags'
    ========================================================================== */
 
 
-long rb_fd_send
+long rb_posix_send
 (
     struct rb     *rb,      /* rb object */
     int            fd,      /* file descriptor from which copy data to buffer */

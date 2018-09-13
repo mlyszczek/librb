@@ -32,10 +32,10 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, unsigned long flags);
 long rb_write(struct rb *rb, const void *buffer, size_t count);
 long rb_send(struct rb *rb, const void *buffer, size_t count,
     unsigned long flags);
-long rb_fd_read(struct rb *rb, int fd, size_t count);
-long rb_fd_recv(struct rb *rb, int fd, size_t count, unsigned long flags);
-long rb_fd_write(struct rb *rb, int fd, size_t count);
-long rb_fd_send(struct rb *rb, int fd, size_t count, unsigned long flags);
+long rb_posix_read(struct rb *rb, int fd, size_t count);
+long rb_posix_recv(struct rb *rb, int fd, size_t count, unsigned long flags);
+long rb_posix_write(struct rb *rb, int fd, size_t count);
+long rb_posix_send(struct rb *rb, int fd, size_t count, unsigned long flags);
 
 int rb_clear(struct rb *rb, int clear);
 int rb_destroy(struct rb *rb);
@@ -47,10 +47,5 @@ const char *rb_version(char *major, char *minor, char *patch);
 long rb_count(struct rb *rb);
 long rb_space(struct rb *rb);
 size_t rb_header_size(void);
-
-int rb_posix_read(struct rb *rb, int fd, size_t count);
-int rb_posix_recv(struct rb *rb, int fd, size_t count, unsigned long flags);
-int rb_posix_write(struct rb *rb, int fd, size_t count);
-int rb_posix_send(struct rb *rb, int fd, size_t count, unsigned long flags);
 
 #endif
