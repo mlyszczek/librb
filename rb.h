@@ -41,6 +41,7 @@ int rb_clear(struct rb *rb, int clear);
 int rb_destroy(struct rb *rb);
 int rb_cleanup(struct rb *rb);
 int rb_stop(struct rb *rb);
+int rb_stop_signal(struct rb *rb, int signum);
 long rb_discard(struct rb *rb, size_t count);
 const char *rb_version(char *major, char *minor, char *patch);
 long rb_count(struct rb *rb);

@@ -1595,20 +1595,10 @@ static void *rb_stop_thread
 
     /*
      * install signal action for user specified signal (or default one if he
-     * didn't define it
+     * didn't define it)
      */
 
-    if (sigaction(rb->signum, &sa, NULL) == -1)
-    {
-        /*
-         * good job user, he just passed wrong signal (like SIGKILL) or
-         * something that is not supported on this platform, let's try to
-         * save his sorry ass by installing default sigaction.
-         */
-
-        trace(("e/sigaction() %s", strerror(errno)));
-        sigaction(SIGUSR1, &sa, &osa);
-    }
+    sigaction(rb->signum, &sa, NULL);
 
 #   endif /* ENABLE_POSIX_CALLS */
 
@@ -2386,6 +2376,58 @@ int rb_stop
     errno = ENOSYS;
     return -1;
 #endif
+}
+
+
+/* ==========================================================================
+    Sets what signal to send upon calling rb_stop()
+   ========================================================================== */
+
+
+int rb_stop_signal
+(
+    struct rb        *rb,     /* rb object */
+    int               signum  /* signal to send with pthread_kill() */
+)
+{
+# if ENABLE_THREADS && ENABLE_POSIX_CALLS
+
+    struct sigaction  sa;     /* sigaction to check if signum is valid */
+    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+
+    VALID(EINVAL, rb);
+
+    memset(&sa, 0x00, sizeof(sa));
+    sa.sa_handler = rb_sigaction;
+
+    /*
+     * install signal action for user specified signal (or default one if he
+     * didn't define it)
+     */
+
+    if (sigaction(signum, &sa, NULL) == -1)
+    {
+        /*
+         * provided signum is invalid on this system, signal won't  be  set,
+         * and we will use default SIGUSR1 by default
+         */
+
+        return -1;
+    }
+
+    trace("rb lock");
+    pthread_mutex_lock(&rb->lock);
+    rb->signum = signum;
+    pthread_mutex_unlock(&rb->lock);
+    trace("rb unlock");
+
+#else /* ENABLE_THREADS && ENABLE_POSIX_CALLS */
+
+    errno = ENOSYS;
+    return -1;
+
+#endif /* ENABLE_THREADS && ENABLE_POSIX_CALLS */
 }
 
 
