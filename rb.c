@@ -2478,6 +2478,7 @@ int rb_stop_signal
     rb->signum = signum;
     pthread_mutex_unlock(&rb->lock);
     trace("rb unlock");
+    return 0;
 
 #else /* ENABLE_THREADS && ENABLE_POSIX_CALLS */
 
