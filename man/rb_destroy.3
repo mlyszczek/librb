@@ -2,18 +2,35 @@
 .SH NAME
 .PP
 .BR rb_stop ,
+.BR rb_stop_signal ,
 .BR rb_destroy ,
 .B rb_cleanup
 - functions to stop any locked threads in rb functions and free resources
 allocated by
 .BR rb_new (3)
+and
+.BR rb_init (3)
 .SH SYNOPSIS
 .PP
 .BI "int rb_stop(struct rb *" rb ");"
 .br
+.BI "int rb_stop_signal(struct rb *" rb ", int " signum ");"
+.br
 .BI "int rb_destroy(struct rb *" rb ");"
 .br
 .BI "int rb_cleanup(struct rb *" rb ");"
+.PP
+Feature Test Macro:
+.PP
+.BR rb_stop ():
+.RS
+ENABLE_THREADS
+.RE
+.PP
+.BR rb_stop_signal ():
+.RS
+ENABLE_THREADS && ENABLE_POSIX_CALLS
+.RE
 .SH DESCRIPTION
 .PP
 Function
@@ -27,6 +44,31 @@ Also after this function is called, any call to
 or
 .BR rb_send (3)
 will result in error.
+.PP
+When
+.B ENABLE_THREADS
+and
+.B ENABLE_POSIX_CALLS
+are enabled and rb object was created with
+.BR O_MULTITHREAD ,
+.BR rb_write (3)
+and
+.BR rb_read (3)
+may be blocked in select() function and the only way for thread to leave blocked
+syscall is to send a signal.
+.BR rb_stop (3)
+will send
+.I signum
+signal to all threads blocked in syscalls to release them so caller can join
+them in main thread.
+By default
+.B SIGUSR1
+is sent.
+If you use this signal in your application, you can overwrite signal
+.BR rb_stop (3)
+will send with
+.BR rb_stop_signal (3)
+function.
 .PP
 Function
 .BR rb_destroy (3)
@@ -129,6 +171,21 @@ object is not modified.
 Passed
 .I rb
 is invalid (null).
+.TP
+.B EINVAL
+Invalid
+.I signum
+passed in
+.BR rb_stop_signal (3)
+function. Invalid as in signal does not exist on the system or
+.B SIGKILL
+or
+.B SIGSTOP
+was passed which cannot be caught.
+In that case signal is not changed.
+.TP
+.B ENOSYS
+Function not implemented (feature macro not set)
 .SH SEE ALSO
 .PP
 .BR rb_overview (7),
@@ -139,6 +196,10 @@ is invalid (null).
 .BR rb_recv (3),
 .BR rb_write (3),
 .BR rb_send (3),
+.BR rb_posix_read (3),
+.BR rb_posix_recv (3),
+.BR rb_posix_write (3),
+.BR rb_posix_send (3),
 .BR rb_clear (3),
 .BR rb_count (3),
 .BR rb_space (3),

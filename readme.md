@@ -44,16 +44,34 @@ Additional functions are:
   * [rb_version](http://librb.kurwinet.pl/manuals/rb_version.3.html) -
     get version of library that is used
 
+Extra functions enabled on POSIX compliant systems. These functions are provided
+for convenience, but can also be used to limit copying operations from socket
+to **rb**:
+
+  * [rb_posix_read](http://librb.kurwinet.pl/manuals/rb_posix_read.3.html) -
+    reads from the ring buffer directly to provided socket
+  * [rb_posix_write](http://librb.kurwinet.pl/manuals/rb_posix_write.3.html) -
+    writes to the ring buffer directly from socket
+  * [rb_posix_recv](http://librb.kurwinet.pl/manuals/rb_posix_recv.3.html) -
+    reads from the ring buffer directly to provided socket but also accepts
+    flags
+  * [rb_posix_send](http://librb.kurwinet.pl/manuals/rb_posix_send.3.html) -
+    writes to the ring buffer directly from socket but also accepts flags
+
 Dependencies
 ============
 
-Library is C89 complaint and will work under any POSIX environment that
-implements pthreads and libc. If target system doesn't have posix, no worries.
-in such case the only requirenment is C89 compiler and libc (no threads then
-though. To build without threads, add **--disable-threads** to configure script.
+Library is **C89** complaint and will work under any **POSIX** environment that
+implements pthreads and libc. If target system doesn't have **POSIX**, no
+worries.  in such case the only requirenment is **C89** compiler and libc (no
+threads then though. To build without threads, add **--disable-threads** to
+configure script.
 
 Test results
 ============
+
+Note: tests are done on **master** branch, on release tags, all tests *always*
+pass.
 
 operating system tests
 ----------------------
@@ -115,6 +133,36 @@ for tests run:
 ~~~
 $ make check
 ~~~
+
+Build time options
+==================
+
+Some fatures can be disabled to save some code size or when particular feature
+is not available on target system. All options are passed to configure script
+in common way **./configure --enable-_feature_**. Run **./configure --help** to
+see help on that matter. For every **--enable** option it is also valid to use
+**--disable-_feature_**.  Enabling option here does not mean it will be hard
+enabled in runtime, this will just give you an option to enable these settings
+later in runtime.
+
+--enable-threads (default: enable)
+----------------------------------
+
+When set, you will be able to create **rb** object with **O_MULTITHREAD** flag,
+which will enable multi-thread safety for that **rb** object. This needs your
+system to support **pthreads**.
+
+--enable-posix-calls (default: enable)
+--------------------------------------
+
+When enabled, you will be able to read/write data directly from/into **posix**
+file descriptor (which may be a file on disk, serial device or network socket).
+
+--enable-trace (default: disable)
+---------------------------------
+
+When enabled, library will print tons of logs, use this only when debugging
+this library. When disabled, **rb** will be totally silent.
 
 Functions description
 =====================

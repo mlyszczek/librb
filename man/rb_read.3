@@ -2,7 +2,9 @@
 .SH NAME
 .PP
 .BR rb_read ,
-.B rb_recv
+.BR rb_recv ,
+.BR rb_posix_read ,
+.B rb_posix_recv
 - functions to retrieve data from ring buffer
 .SH SYNOPSIS
 .PP
@@ -12,7 +14,19 @@
 .br
 .BI "long rb_recv(struct rb *" rb ", void *" buffer ", size_t " count ", \
 unsigned long " flags ");"
-.fi
+.br
+.BI "long rb_posix_read(struct rb *" rb ", int " fd ", size_t " count ");"
+.br
+.BI "long rb_posix_recv(struct rb *" rb ", int " fd ", size_t " count ", \
+unsigned long " flags ");"
+.PP
+Feature Test Macro:
+.PP
+.BR rb_posix_read (),
+.BR rb_posix_recv ():
+.RS
+ENABLE_POSIX_CALLS
+.RE
 .SH DESCRIPTION
 .PP
 .BR rb_read (3)
@@ -26,7 +40,6 @@ to memory pointed by
 .PP
 Note that by
 .B elements
-n
 we don't mean
 .BR bytes .
 For example if
@@ -34,7 +47,7 @@ For example if
 is 4 bytes, and
 .I count
 is 3, this will copy 4 * 3 = 12 bytes into
-.I buffer
+.IR buffer .
 Functions can and will try to commit as many bytes as possible in a single
 burst, so it is better to call these function once with big
 .I count
@@ -80,11 +93,68 @@ to write data to buffer and total
 .B elements
 have been copied into
 .IR buffer .
+.PP
+.BR rb_posix_read (3)
+works in the same way as
+.BR rb_read (3)
+but instead of copying data to
+.I buffer
+it copies data to whatever is pointed by
+.I fd
+file descriptor.
+This may be ordinary file on disk, or pipe, or serial device, or network socket.
+This is convenient function that may be useful when constructing packet frame to
+send. You could first prepare packet byte by byte with
+.BR rb_write (3)
+and then send whole packet with
+.BR rb_posix_read (3)
+function in on single burst.
+Calling multiple
+.BR rb_write (3)
+followed by single
+.BR rb_posix_read (3)
+to send frame, will be way faster than calling multiple
+.BR write ()
+system call functions.
+.PP
+When multiple threads access single
 .I rb
-object in multi-threaded applications without mutexes.
+object in blocking mode, it is guaranteed that each thread will write from
+.I rb
+to
+.I buffer
+or
+.I fd
+continous data.
+Consider
+.I rb
+object with 10 message in the buffer each containing 20 bytes frame.
+Now 4 threads simultaneously calls
+.BR rb_posix_read (3)
+to write data from
+.I rb
+to
+.I buffer
+or
+.IR fd.
+In such scenario
+.B rb
+guarantees all frames will be read from
+.I rb
+in order without interlace even when socket associated with
+.I fd
+is full and doesn't accept
+.B write()
+at the moment.
 .PP
 .BR rb_recv (3)
-works the same but it also accepts
+and
+.BR rb_posix_recv (3)
+work the same as
+.BR rb_read (3)
+and
+.BR rb_posix_read (3)
+but they also accepts
 .IR flags .
 Possible
 .I flags
@@ -105,6 +175,9 @@ into
 .I buffer
 and will return immediately.
 This means, function will never block, no matter what.
+Not recommended when multiple threads calls
+.BR rb_read (3)
+with this flag - may lead to interlaced reads
 .TP
 .B MSG_PEEK
 Reads from
@@ -123,6 +196,96 @@ flag was also passed.
 It is guaranteed that calling function with this flag, will not alter internal
 state of
 .I rb object.
+.SH EXAMPLE
+.PP
+Reading frames by multiple parsers. Error handling ommited for clarity.
+.EX
+.PP
+    void *parser(void *arg)
+    {
+        struct rb *rb = arg;
+
+        for (;;)
+        {
+            struct frame f;
+
+            /* when rb was created with O_MULTITHREAD, this function
+             * is guaranteed to store exactly sizeof(f) data, and
+             * this data will be continous, that is no other parser
+             * thread will wake up, and take any byte in the middle
+             * (that is if rb_read doesn't return -1)
+             */
+
+            if (rb_read(rb, &f, sizeof(f)) == -1)
+            {
+                if (errno == ECANCELED)
+                {
+                    /* rb_stop() has been called, rb object should
+                     * not be used any more
+                     */
+
+                    break;
+                }
+            }
+
+            /* f object will be valid here, some frame processing
+             * stuff can be made here
+             */
+        }
+
+        /* perform cleanup */
+        return NULL;
+    }
+
+    void loop(struct rb *rb)
+    {
+        int fd, i;
+        pthread_t parsers[4];
+
+        fd = init_client_socket();
+
+        for(i = 0; i != 4; ++i)
+        {
+            pthread_create(&parsers[i], NULL, parse, rb);
+        }
+
+        for (;;)
+        {
+            /* read data from fd socket and write them to rb
+             * for further processing, we set count to max
+             * value for performance as we don't need it to
+             * return (unless error occurs)
+             *
+             * NOTE: rb will now be locked from writing, only
+             * this thread will be able to write to rb, don't
+             * try to call another rb_write() function, it will
+             * be blocked until this function return (SIZE_MAX
+             * bytes have been read from fd) or error occurs
+             */
+
+            if (rb_fd_write(rb, fd, SIZE_MAX) == -1)
+            {
+                if (errno == ECANCELED)
+                {
+                    /* rb_stop() has been called, we shouldn't
+                     * use rb object anymore
+                     */
+
+                    break;
+                }
+            }
+        }
+
+        for (i = 0; i != 4; ++i)
+        {
+            /* join all parsers, so rb_destory() can be safely
+             * called
+             */
+
+            pthread_join(parsers[i], NULL);
+        }
+    }
+.EE
 .SH RETURN VALUES
 .PP
 On successfull read, function will return number of
@@ -154,12 +317,15 @@ immediately.
 .BR rb_stop (3)
 was called, and operation was cancelled, because
 .I rb
-object is abou to be destroyed.
+object is about to be destroyed.
 You should not access
 .I rb
 object after you receive this error.
 Otherwise you will probably get deadlock or application will crash.
 Returned only if threads are enabled.
+.TP
+.B ENOSYS
+Function is not implemented (was not compiled in).
 .SH SEE ALSO
 .PP
 .BR rb_overview (7),
@@ -169,10 +335,11 @@ Returned only if threads are enabled.
 .BR rb_cleanup (3),
 .BR rb_discard (3),
 .BR rb_stop (3),
-.BR rb_read (3),
-.BR rb_recv (3),
+.BR rb_stop_signal (3),
 .BR rb_write (3),
 .BR rb_send (3),
+.BR rb_posix_write (3),
+.BR rb_posix_send (3),
 .BR rb_clear (3),
 .BR rb_count (3),
 .BR rb_space (3),
