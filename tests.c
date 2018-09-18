@@ -534,6 +534,8 @@ static void multi_thread(void)
     unsigned char *recv_buf = malloc(t_objsize * buflen);
     size_t i;
     int rc;
+    int fd = -1;
+    int fd2 = -1;
 
     struct rb *rb;
     struct rb *rb2;
@@ -566,9 +568,6 @@ static void multi_thread(void)
 
     if (t_multi_test_type == TEST_FD_FILE)
     {
-        int fd;
-        int fd2;
-
         fd2 = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644);
         fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644);
         if (fd < 0 || fd2 < 0)
@@ -608,6 +607,8 @@ static void multi_thread(void)
                 c, buflen, t_rblen, t_readlen, t_writelen);
     };
 
+    close(proddata.fd);
+    close(consdata.fd);
     rb_destroy(rb);
     free(send_buf);
     free(recv_buf);
@@ -1201,6 +1202,7 @@ static void fd_write_single_overlap(void)
     }
 
     rb_destroy(rb);
+    close(fd);
 }
 
 static void fd_write_single_partial(void)
@@ -1617,7 +1619,6 @@ int main(void)
     unsigned int t_num_producers_max = 8;
     unsigned int t_num_consumers_max = 8;
     char name[128];
-
 
 #if ENABLE_THREADS
     for (t_num_consumers = 1; t_num_consumers <= t_num_consumers_max;
