@@ -828,21 +828,21 @@ static long rb_recvt
             return -1;
         }
 
-        /*
-         * Elements in memory can overlap, so we need to calculate how much
-         * elements we can safel
-         */
-
-        count_to_end = rb_count_end(rb);
-        count_to_read = count > count_to_end ? count_to_end : count;
-        bytes_to_read = count_to_read * rb->object_size;
-
 #   if ENABLE_POSIX_CALLS
 
         if (buf)
         {
 
 #   endif /* ENABLE_POSIX_CALLS */
+
+            /*
+             * Elements in memory can overlap, so we need to  calculate  how
+             * much elements we can safel
+             */
+
+            count_to_end = rb_count_end(rb);
+            count_to_read = count > count_to_end ? count_to_end : count;
+            bytes_to_read = count_to_read * rb->object_size;
 
             memcpy(buf, rb->buffer + rb->tail * rb->object_size, bytes_to_read);
             buf += bytes_to_read;
@@ -904,6 +904,15 @@ static long rb_recvt
             trace(("i/rb lock"));
             pthread_mutex_lock(&rb->lock);
             rb_del_blocked_thread(rb);
+
+            /*
+             * Elements in memory can overlap, so we need to  calculate  how
+             * much elements we can safel
+             */
+
+            count_to_end = rb_count_end(rb);
+            count_to_read = count > count_to_end ? count_to_end : count;
+            bytes_to_read = count_to_read * rb->object_size;
 
             if (sact == -1)
             {
@@ -1127,8 +1136,8 @@ static long rb_sends
         }
 
         /*
-         * we operate on elements, and read() returns number of bytes read,
-         * so here we convert number of bytes read into number of elements
+         * we operate on elements, and read() returns number of bytes  read,
+         * so here we convert number of bytes read into number  of  elements
          * read.
          */
 
@@ -1309,21 +1318,22 @@ long rb_sendt
             return -1;
         }
 
-        /*
-         * Count might be too large to store it in one burst, we calculate
-         * how many elements can we store before needing to overlap memor
-         */
-
-        count_to_end = rb_space_end(rb);
-        count_to_write = count > count_to_end ? count_to_end : count;
-        bytes_to_write = count_to_write * rb->object_size;
-
 #   if ENABLE_POSIX_CALLS
 
         if (buf)
         {
 
 #   endif /* ENABLE_POSIX_CALLS */
+
+            /*
+             * Count might be too  large  to  store  it  in  one  burst,  we
+             * calculate how many elements can we store  before  needing  to
+             * overlap memor
+             */
+
+            count_to_end = rb_space_end(rb);
+            count_to_write = count > count_to_end ? count_to_end : count;
+            bytes_to_write = count_to_write * rb->object_size;
 
             memcpy(rb->buffer + rb->head * rb->object_size,
                 buf, bytes_to_write);
@@ -1419,6 +1429,16 @@ long rb_sendt
             trace(("i/rb lock"));
             pthread_mutex_lock(&rb->lock);
             rb_del_blocked_thread(rb);
+
+            /*
+             * Count might be too  large  to  store  it  in  one  burst,  we
+             * calculate how many elements can we store  before  needing  to
+             * overlap memor
+             */
+
+            count_to_end = rb_space_end(rb);
+            count_to_write = count > count_to_end ? count_to_end : count;
+            bytes_to_write = count_to_write * rb->object_size;
 
             if (sact == -1)
             {
