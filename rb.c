@@ -75,7 +75,7 @@
    ========================================================================== */
 
 
-#if ENABLE_POSIX_CALLS
+#if ENABLE_POSIX_CALLS && ENABLE_THREADS
 
 /*
  * sadly there is no portable pthread_t invalid value like '0', so  we  need
@@ -88,7 +88,7 @@ struct blocked_threads
     int        valid;   /* if set, thread is valid */
 };
 
-#endif /* ENABLE_POSIX_CALLS */
+#endif /* ENABLE_POSIX_CALLS && ENABLE_THREADS */
 
 /*
  * Ring buffer information.  This needs to be  hidden  in  c,  because  some
