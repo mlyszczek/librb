@@ -62,7 +62,7 @@ static int multi;
 
 static int t_num_producers;
 static int t_num_consumers;
-static int data[4];
+static int data[255];
 static pthread_mutex_t multi_mutex;
 static pthread_mutex_t multi_mutex_count;
 static unsigned int multi_index;
@@ -1651,15 +1651,15 @@ int main(void)
     }
 #endif
 
-    for (t_rblen = 2; t_rblen < t_rblen_max; t_rblen *= 2)
+    for (t_rblen = 2; t_rblen <= t_rblen_max; t_rblen *= 2)
     {
-        for (t_readlen = 2; t_readlen < t_readlen_max;
+        for (t_readlen = 2; t_readlen <= t_readlen_max;
              t_readlen *= 2)
         {
-            for (t_writelen = 2; t_writelen < t_writelen_max;
+            for (t_writelen = 2; t_writelen <= t_writelen_max;
                  t_writelen *= 2)
             {
-                for (t_objsize = 2; t_objsize < t_objsize_max;
+                for (t_objsize = 2; t_objsize <= t_objsize_max;
                      t_objsize *= 2)
                 {
                     t_multi_test_type = TEST_BUFFER;
