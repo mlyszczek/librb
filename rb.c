@@ -15,31 +15,41 @@
 
 
 #if HAVE_CONFIG_H
+
 #   include "config.h"
+
 #endif /* HAVE_CONFIG_H */
 
 #ifdef TRACE_LOG
+
 #   define _GNU_SOURCE
 #   include <stdio.h>
 #   include <syscall.h>
 #   include <unistd.h>
 
-#   define trace(x) do \
-    { \
-        printf("[%s:%d:%s():%ld]" , __FILE__, __LINE__, __func__, \
-            syscall(SYS_gettid)); \
-        printf x ; \
-        printf("\n"); \
-    } \
+#   define trace(x) do                                                         \
+    {                                                                          \
+        printf("[%s:%d:%s():%ld]" , __FILE__, __LINE__, __func__,              \
+            syscall(SYS_gettid));                                              \
+        printf x ;                                                             \
+        printf("\n");                                                          \
+    }                                                                          \
     while (0)
+
 #else
+
 #   define trace(x)
+
 #endif
 
 #if HAVE_ASSERT_H
+
 #   include <assert.h>
+
 #else /* HAVE_ASSERT_H */
+
 #   define assert(x)
+
 #endif /* HAVE_ASSERT_H */
 
 #include <errno.h>
@@ -48,17 +58,41 @@
 #include <string.h>
 
 #if ENABLE_THREADS
+
 #   include <fcntl.h>
 #   include <pthread.h>
 #   include <sys/socket.h>
 #   include <sys/time.h>
+
 #   if ENABLE_POSIX_CALLS
+
 #       include <signal.h>
+
 #   endif /* ENABLE_POSIX_CALLS */
+
 #endif /* ENABLE_THREADS */
 
 #if ENABLE_POSIX_CALLS
+
 #   include <unistd.h>
+
+#   if HAVE_SYS_SELECT_H
+
+#       include <sys/select.h>
+
+#   else /* HAVE_SYS_SELECT_H */
+
+        /*
+         * some systems (like hpux 11.11) may not have sys/select.h as it is
+         * mandatory only from POSIX 1003.1-2001 and these are old  includes
+         * for select() function
+         */
+
+#       include <sys/time.h>
+#       include <sys/types.h>
+
+#   endif /* HAVE_SYS_SELECT_H */
+
 #endif /* ENABLE_POSIX_CALLS */
 
 #include "rb.h"

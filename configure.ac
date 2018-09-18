@@ -43,7 +43,7 @@ AC_ARG_ENABLE([posix-calls],
 AS_IF([test "x$enable_posix_calls" = "xyes"],
 [
     AC_DEFINE([ENABLE_POSIX_CALLS], [1], [Enable posix helper functions])
-    AC_CHECK_HEADERS(unistd.h)
+    AC_CHECK_HEADERS(unistd.h sys/select.h)
     AC_CHECK_FUNCS([read write select],,
         AC_MSG_ERROR(not found, needed by --enable-posix-calls))
 ],

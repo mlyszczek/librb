@@ -20,12 +20,14 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <time.h>
-#include <sys/select.h>
+#include <unistd.h>
+#include <sys/time.h>
+
+#if HAVE_SYS_SELECT_H
+#   include <sys/select.h>
+#endif
 
 #include "mtest.h"
-
-#include <sys/types.h>
-#include <unistd.h>
 
 #define TEST_BUFFER 0
 #define TEST_FD_FILE 1
