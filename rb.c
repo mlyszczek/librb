@@ -908,12 +908,6 @@ static long rb_recvt
             pthread_mutex_unlock(&rb->lock);
             trace(("i/rb unlock"));
 
-            if (r == 0)
-            {
-                pthread_mutex_unlock(&rb->rlock);
-                trace(("i/rlock unlock"));
-            }
-
             tv.tv_sec = 0;
             tv.tv_usec = 0;
 
@@ -927,12 +921,6 @@ static long rb_recvt
             else
             {
                 sact = select(fd + 1, NULL, &fds, NULL, NULL);
-            }
-
-            if (r == 0)
-            {
-                trace(("i/rlock lock"));
-                pthread_mutex_lock(&rb->rlock);
             }
 
             trace(("i/rb lock"));
@@ -1412,21 +1400,6 @@ long rb_sendt
             pthread_mutex_unlock(&rb->lock);
             trace(("i/rb unlock"));
 
-            if (w == 0)
-            {
-                /*
-                 * we didn't write anything to rb just yet, so we can unlock
-                 * another wlock, so other thread can write to rb, while  we
-                 * wait.  If we don't unlock it we risk situation  where  t1
-                 * calls this function, then blocks  for  days  on  select()
-                 * waiting for some data to arrive,  blocking  every  thread
-                 * that may receive data much faster.
-                 */
-
-                trace(("i/wlock unlock"));
-                pthread_mutex_unlock(&rb->wlock);
-            }
-
             tv.tv_sec = 0;
             tv.tv_usec = 0;
 
@@ -1448,16 +1421,6 @@ long rb_sendt
                  */
 
                 sact = select(fd + 1, &fds, NULL, NULL, NULL);
-            }
-
-            if (w == 0)
-            {
-                /*
-                 * ok, blocking is done, relock wlock again
-                 */
-
-                trace(("i/wlock lock"));
-                pthread_mutex_lock(&rb->wlock);
             }
 
             trace(("i/rb lock"));

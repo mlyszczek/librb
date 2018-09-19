@@ -188,9 +188,13 @@ As usual, error handling ommited for clarity.
         for (;;)
         {
             /* rb_posix_write() will sleep current thread until
-             * data shows up on data->fd file descriptor. Until
-             * this thread writes any data to rb, it won't block
-             * other threads that wants to use rb_write() functions.
+             * data shows up on data->fd file descriptor.
+             *
+             * NOTE: you should be carefull here, as calling this
+             * function on slow data->fd will block other threads.
+             * rb will try to call read() on data->fd and read()
+             * will block until any data shows on data->fd, and
+             * if data->fd is slow, this may take a long time.
              */
 
             if (rb_posix_write(data->rb, data->fd,

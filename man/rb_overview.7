@@ -122,8 +122,7 @@ Upon entering any of the
 .B POSIX
 function, entering thread will lock read or write mutex, meaning when thread 1
 enters any read function, no other thread will be able to read until thread 1
-completly finishes its read (there is on exception to this rule explained
-later).
+completly finishes its read.
 Now you can see the problem, thread 1 may go in and perform
 .BR read ()
 on super slow socket and it will block threads that may also want to read into
@@ -133,9 +132,6 @@ object but from different, much faster socket.
 This situation, of course, can occur only when multiple threads uses same
 .B rb
 object.
-As stated before, there is one exception to this rule.
-Until thread 1 (the one using slow socket) reads anything from the socket it
-doesn't block any other threads.
 .SH EXAMPLE
 .PP
 Please note, that example is missing error handling for simplicity.
