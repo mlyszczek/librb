@@ -419,8 +419,8 @@ static void multi_file_consumer_producer(void)
     count = 0;
     memset(data, 0, sizeof(data));
 
-    unlink("/tmp/rb-test-fifo");
-    mkfifo("/tmp/rb-test-fifo", 0777);
+    unlink("./rb-test-fifo");
+    mkfifo("./rb-test-fifo", 0777);
 
     rb = rb_new(8, sizeof(unsigned int), O_MULTITHREAD);
 
@@ -441,7 +441,7 @@ static void multi_file_consumer_producer(void)
         prod = malloc(sizeof(*prod));
         cons = malloc(t_num_consumers * sizeof(*cons));
 
-        pipe_data.pipe = "/tmp/rb-test-fifo";
+        pipe_data.pipe = "./rb-test-fifo";
         pthread_create(&pipet, NULL, multi_pipe_consumer, &pipe_data);
 
         prod_data.rb = rb;
@@ -449,7 +449,7 @@ static void multi_file_consumer_producer(void)
         pthread_create(prod, NULL, multi_producer, &prod_data);
 
         cons_data.rb = rb;
-        cons_data.fd = open("/tmp/rb-test-fifo", O_WRONLY);
+        cons_data.fd = open("./rb-test-fifo", O_WRONLY);
         for (i = 0; i != t_num_consumers; ++i)
         {
             pthread_create(&cons[i], NULL, multi_consumer, &cons_data);
@@ -460,7 +460,7 @@ static void multi_file_consumer_producer(void)
         prod = malloc(t_num_producers * sizeof(*prod));
         cons = malloc(sizeof(*cons));
 
-        pipe_data.pipe = "/tmp/rb-test-fifo";
+        pipe_data.pipe = "./rb-test-fifo";
         pthread_create(&pipet, NULL, multi_pipe_producer, &pipe_data);
 
         cons_data.rb = rb;
@@ -468,7 +468,7 @@ static void multi_file_consumer_producer(void)
         pthread_create(cons, NULL, multi_consumer, &cons_data);
 
         prod_data.rb = rb;
-        prod_data.fd = open("/tmp/rb-test-fifo", O_RDONLY);
+        prod_data.fd = open("./rb-test-fifo", O_RDONLY);
         for (i = 0; i != t_num_producers; ++i)
         {
             pthread_create(&prod[i], NULL, multi_producer, &prod_data);
@@ -570,8 +570,8 @@ static void multi_thread(void)
 
     if (t_multi_test_type == TEST_FD_FILE)
     {
-        fd2 = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644);
-        fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644);
+        fd2 = open("./rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644);
+        fd = open("./rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644);
         if (fd < 0 || fd2 < 0)
         {
             perror("open");
@@ -1070,7 +1070,7 @@ static void fd_write_single(void)
      * prepare file with some content to read into rb
      */
 
-    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    if ((fd = open("./rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
     {
         perror("posix_read_single; prepare; open");
         mt_assert(0);
@@ -1115,7 +1115,7 @@ static void fd_write_single_multibyte(void)
      * prepare file with some content to read into rb
      */
 
-    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    if ((fd = open("./rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
     {
         perror("posix_read_single; prepare; open");
         mt_assert(0);
@@ -1169,7 +1169,7 @@ static void fd_write_single_overlap(void)
      * prepare file with some content to read into rb
      */
 
-    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    if ((fd = open("./rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
     {
         perror("posix_read_single; prepare; open");
         mt_assert(0);
@@ -1220,7 +1220,7 @@ static void fd_write_single_partial(void)
      * prepare file with some content to read into rb
      */
 
-    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    if ((fd = open("./rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
     {
         perror("posix_read_single; prepare; open");
         mt_assert(0);
@@ -1287,7 +1287,7 @@ static void fd_read_single(void)
     char rdata[128];
 
 
-    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    if ((fd = open("./rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
     {
         perror("prepare; open");
         mt_assert(0);
@@ -1324,7 +1324,7 @@ static void fd_read_single_multibyte(void)
     int rdata[128];
 
 
-    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    if ((fd = open("./rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
     {
         perror("prepare; open");
         mt_assert(0);
@@ -1364,7 +1364,7 @@ static void fd_read_single_overlap(void)
     char data[128];
     char rdata[128];
 
-    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    if ((fd = open("./rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
     {
         perror("prepare; open");
         mt_assert(0);
@@ -1421,7 +1421,7 @@ static void fd_read_single_partial(void)
     char data[128];
     char rdata[128];
 
-    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    if ((fd = open("./rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
     {
         perror("prepare; open");
         mt_assert(0);
@@ -1481,7 +1481,7 @@ static void fd_read_single_peek(void)
     char rdata[128];
 
 
-    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    if ((fd = open("./rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
     {
         perror("prepare; open");
         mt_assert(0);
@@ -1543,7 +1543,7 @@ static void fd_read_single_peek_overlap(void)
     char rdata[128];
 
 
-    if ((fd = open("/tmp/rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
+    if ((fd = open("./rb-test-file", O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
     {
         perror("prepare; open");
         mt_assert(0);
