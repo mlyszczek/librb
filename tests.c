@@ -1730,5 +1730,7 @@ int main(void)
     mt_run(fd_write_enosys);
     mt_run(fd_read_enosys);
 #endif
+    unlink("./rb-test-file");
+    unlink("./rb-test-fifo");
     mt_return();
 }
