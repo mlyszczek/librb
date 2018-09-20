@@ -177,7 +177,11 @@ static void *multi_pipe_producer(void *arg)
     unsigned int index;
     int fd;
 
+#if defined(__OpenBSD__)
     fd = open(d->pipe, O_RDWR);
+#else
+    fd = open(d->pipe, O_WRONLY);
+#endif
 
     for (;;)
     {
@@ -251,7 +255,11 @@ static void *multi_pipe_consumer(void *arg)
     unsigned int index;
     int fd;
 
+#if defined(__OpenBSD__)
     fd = open(d->pipe, O_RDWR);
+#else
+    fd = open(d->pipe, O_RDONLY);
+#endif
 
     for (;;)
     {
@@ -449,7 +457,11 @@ static void multi_file_consumer_producer(void)
         pthread_create(prod, NULL, multi_producer, &prod_data);
 
         cons_data.rb = rb;
+#if defined(__OpenBSD__)
         cons_data.fd = open("./rb-test-fifo", O_RDWR);
+#else
+        cons_data.fd = open("./rb-test-fifo", O_WRONLY);
+#endif
         for (i = 0; i != t_num_consumers; ++i)
         {
             pthread_create(&cons[i], NULL, multi_consumer, &cons_data);
@@ -468,7 +480,11 @@ static void multi_file_consumer_producer(void)
         pthread_create(cons, NULL, multi_consumer, &cons_data);
 
         prod_data.rb = rb;
+#if defined(__OpenBSD__)
         prod_data.fd = open("./rb-test-fifo", O_RDWR);
+#else
+        prod_data.fd = open("./rb-test-fifo", O_RDONLY);
+#endif
         for (i = 0; i != t_num_producers; ++i)
         {
             pthread_create(&prod[i], NULL, multi_producer, &prod_data);
