@@ -177,7 +177,7 @@ static void *multi_pipe_producer(void *arg)
     unsigned int index;
     int fd;
 
-    fd = open(d->pipe, O_WRONLY);
+    fd = open(d->pipe, O_RDWR);
 
     for (;;)
     {
@@ -251,7 +251,7 @@ static void *multi_pipe_consumer(void *arg)
     unsigned int index;
     int fd;
 
-    fd = open(d->pipe, O_RDONLY);
+    fd = open(d->pipe, O_RDWR);
 
     for (;;)
     {
@@ -449,7 +449,7 @@ static void multi_file_consumer_producer(void)
         pthread_create(prod, NULL, multi_producer, &prod_data);
 
         cons_data.rb = rb;
-        cons_data.fd = open("./rb-test-fifo", O_WRONLY);
+        cons_data.fd = open("./rb-test-fifo", O_RDWR);
         for (i = 0; i != t_num_consumers; ++i)
         {
             pthread_create(&cons[i], NULL, multi_consumer, &cons_data);
@@ -468,7 +468,7 @@ static void multi_file_consumer_producer(void)
         pthread_create(cons, NULL, multi_consumer, &cons_data);
 
         prod_data.rb = rb;
-        prod_data.fd = open("./rb-test-fifo", O_RDONLY);
+        prod_data.fd = open("./rb-test-fifo", O_RDWR);
         for (i = 0; i != t_num_producers; ++i)
         {
             pthread_create(&prod[i], NULL, multi_producer, &prod_data);
