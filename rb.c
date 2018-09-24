@@ -623,7 +623,6 @@ static long rb_recvs
     }
 
     objsize = rb->object_size;
-    tail = rb->tail;
     cnte = rb_count_end(rb);
     buf = buffer;
 
@@ -1635,9 +1634,6 @@ static void *rb_stop_thread
 
 #   if ENABLE_POSIX_CALLS
 
-    now = 0;
-    prev = 0;
-
     /*
      * we need to install action handler, so sending signal won't kill  kill
      * application
@@ -1662,6 +1658,7 @@ static void *rb_stop_thread
      * if all threads finished before calling rb_cleanup()
      */
 
+    prev = 0;
     while (stopped != 1)
     {
         trace(("i/rb lock"));
