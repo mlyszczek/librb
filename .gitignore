@@ -1,6 +1,10 @@
+*.gcda
+*.gcno
+*.la
+*.lo
 *.o
-.*
 *.plist
+.*
 Makefile
 Makefile.in
 aclocal.m4
@@ -14,6 +18,8 @@ config.log
 config.status
 config.sub
 configure
+coverage.info
+coveragereport/
 depcomp
 install-sh
 librb-*.tar.gz
@@ -35,5 +41,3 @@ tests.trs
 www/downloads.html
 www/manuals
 www/out
-*.la
-*.lo

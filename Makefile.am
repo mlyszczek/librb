@@ -1,3 +1,4 @@
+include Makefile.am.coverage
 ACLOCAL_AMFLAGS=-I m4
 
 # building librb library
@@ -13,7 +14,8 @@ librb_la_CFLAGS = -I$(top_srcdir)
 
 check_PROGRAMS = tests
 tests_SOURCES = rb.c tests.c mtest.h
-tests_CFLAGS = -I$(top_srcdir)
+tests_CFLAGS = -I$(top_srcdir) $(COVERAGE_CFLAGS)
+tests_LDFLAGS = $(COVERAGE_LDFLAGS)
 
 TESTS = $(check_PROGRAMS)
 LOG_DRIVER = env AM_TAP_AWK='$(AWK)' $(SHELL) \

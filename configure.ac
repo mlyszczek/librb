@@ -9,6 +9,19 @@ AC_CONFIG_HEADERS([config.h])
 
 AC_CHECK_HEADERS([assert.h errno.h stddef.h stdlib.h string.h])
 
+
+###
+# gcov coverage reporting
+#
+
+
+m4_include([m4/gcov.m4])
+AC_TDD_GCOV
+AC_SUBST(COVERAGE_CFLAGS)
+AC_SUBST(COVERAGE_CXXFLAGS)
+AC_SUBST(COVERAGE_LDFLAGS)
+
+
 ###
 # --enable-threads
 #
