@@ -1634,6 +1634,8 @@ static void *rb_stop_thread
 
 #   if ENABLE_POSIX_CALLS
 
+    prev = 0;
+
     /*
      * we need to install action handler, so sending signal won't kill  kill
      * application
@@ -1658,7 +1660,6 @@ static void *rb_stop_thread
      * if all threads finished before calling rb_cleanup()
      */
 
-    prev = 0;
     while (stopped != 1)
     {
         trace(("i/rb lock"));
