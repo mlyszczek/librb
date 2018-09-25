@@ -7,12 +7,10 @@
 #include "config.h"
 #endif
 
-#include "rb.h"
 
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
-#include <pthread.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <stdint.h>
@@ -23,11 +21,19 @@
 #include <unistd.h>
 #include <sys/time.h>
 
+#if ENABLE_THREADS
+#   include <sys/types.h>
+#   include <sys/socket.h>
+#   include <netinet/in.h>
+#   include <pthread.h>
+#endif
+
 #if HAVE_SYS_SELECT_H
 #   include <sys/select.h>
 #endif
 
 #include "mtest.h"
+#include "rb.h"
 
 #define TEST_BUFFER 0
 #define TEST_FD_FILE 1
@@ -707,6 +713,105 @@ static void singlethread_eagain(void)
     rb_destroy(rb);
 }
 
+#if ENABLE_THREADS
+
+static void *client(void *arg)
+{
+    struct sockaddr_in saddr;
+    int fd;
+
+    memset(&saddr, 0x00, sizeof(saddr));
+    saddr.sin_addr.s_addr = htonl(0x7f0d2504ul); /* 127.13.37.4 */
+    saddr.sin_family = AF_INET;
+    saddr.sin_port = htons(23893);
+
+    if ((fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
+    {
+        perror("socket()");
+        return NULL;
+    }
+
+    for (;;)
+    {
+        if (connect(fd, (struct sockaddr *)&saddr, sizeof(saddr)) != 0)
+        {
+            if (errno == ECONNREFUSED)
+            {
+                continue;
+            }
+
+            perror("socket()");
+            close(fd);
+            return NULL;
+        }
+
+        break;
+    }
+
+    if (write(fd, "msg", 3) != 3)
+    {
+        perror("write()");
+        close(fd);
+        return NULL;
+    }
+
+    close(fd);
+    return NULL;
+}
+
+static void socket_disconnect(void)
+{
+    struct sockaddr_in saddr;
+    struct rb *rb;
+    int sfd;
+    int cfd;
+    pthread_t client_t;
+
+    rb = rb_new(16, 1, O_MULTITHREAD);
+
+    memset(&saddr, 0x00, sizeof(saddr));
+    saddr.sin_addr.s_addr = htonl(0x7f0d2504ul); /* 127.13.37.4 */
+    saddr.sin_family = AF_INET;
+    saddr.sin_port = htons(23893);
+
+    if ((sfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+    {
+        perror("socket()");
+        mt_assert(0);
+    }
+
+    if (bind(sfd, (struct sockaddr *)&saddr, sizeof(saddr)) != 0)
+    {
+        perror("bind()");
+        close(sfd);
+        mt_assert(0);
+    }
+
+    if (listen(sfd, 1) != 0)
+    {
+        perror("listen()");
+        close(sfd);
+        mt_assert(0);
+    }
+
+    pthread_create(&client_t, NULL, client, NULL);
+
+    if ((cfd = accept(sfd, NULL, NULL)) < 0)
+    {
+        perror("accept()");
+        close(sfd);
+        mt_assert(0);
+    }
+
+    mt_fail(rb_posix_write(rb, cfd, 6) == 3);
+    mt_fail(rb_posix_write(rb, cfd, 6) == 0);
+
+    pthread_join(client_t, NULL);
+    rb_destroy(rb);
+    close(sfd);
+}
+
+#endif
 
 static void invalid_read_write(void)
 {
@@ -1729,6 +1834,7 @@ int main(void)
 
 #if ENABLE_THREADS
     mt_run(multithread_eagain);
+    mt_run(socket_disconnect);
 #endif
 
 #if ENABLE_POSIX_CALLS

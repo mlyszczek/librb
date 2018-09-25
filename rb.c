@@ -1560,6 +1560,23 @@ long rb_sendt
                 return w ? w : -1;
             }
 
+            if (r == 0)
+            {
+                /*
+                 * returning 0 from read() is quite special, it can be  that
+                 * we read end of file, or connection with  the  socket  was
+                 * closed, it should not be ignored as  it  carry  important
+                 * meaning, so we return what was already written to rb.  It
+                 * may be even 0.
+                 */
+
+                pthread_mutex_unlock(&rb->lock);
+                trace(("i/rb unlock"));
+                pthread_mutex_unlock(&rb->wlock);
+                trace(("i/write unlock"));
+                return w;
+            }
+
             /*
              * write() returned something meaningfull,  overwrite  count  to
              * read variable to what was actually read, so pointers are  set
