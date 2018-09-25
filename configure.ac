@@ -10,6 +10,14 @@ AC_CONFIG_HEADERS([config.h])
 AC_CHECK_HEADERS([assert.h errno.h stddef.h stdlib.h string.h])
 
 
+##
+# solaris needs to link agains libsocket
+#
+
+
+AC_SEARCH_LIBS([socket], [socket])
+
+
 ###
 # gcov coverage reporting
 #
