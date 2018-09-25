@@ -713,7 +713,7 @@ static void singlethread_eagain(void)
     rb_destroy(rb);
 }
 
-#if ENABLE_THREADS
+#if ENABLE_THREADS && ENABLE_POSIX_CALLS
 
 static void *client(void *arg)
 {
@@ -1834,7 +1834,6 @@ int main(void)
 
 #if ENABLE_THREADS
     mt_run(multithread_eagain);
-    mt_run(socket_disconnect);
 #endif
 
 #if ENABLE_POSIX_CALLS
@@ -1852,6 +1851,11 @@ int main(void)
     mt_run(fd_write_enosys);
     mt_run(fd_read_enosys);
 #endif
+
+#if ENABLE_THREADS && ENABLE_POSIX_CALLS
+    mt_run(socket_disconnect);
+#endif
+
     unlink("./rb-test-file");
     unlink("./rb-test-fifo");
     mt_return();
