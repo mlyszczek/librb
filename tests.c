@@ -721,9 +721,9 @@ static void *client(void *arg)
     int fd;
 
     memset(&saddr, 0x00, sizeof(saddr));
-    saddr.sin_addr.s_addr = htonl(0x7f0d2504ul); /* 127.13.37.4 */
+    saddr.sin_addr.s_addr = htonl(0x7f000001ul); /* 127.0.0.1 */
     saddr.sin_family = AF_INET;
-    saddr.sin_port = htons(23893);
+    saddr.sin_port = htons(*(unsigned short *)arg);
 
     if ((fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
     {
@@ -766,13 +766,15 @@ static void socket_disconnect(void)
     int sfd;
     int cfd;
     pthread_t client_t;
+    unsigned short port;
 
     rb = rb_new(16, 1, O_MULTITHREAD);
 
+    while ((port = rand() & 0xffff) < 10000);
     memset(&saddr, 0x00, sizeof(saddr));
-    saddr.sin_addr.s_addr = htonl(0x7f0d2504ul); /* 127.13.37.4 */
+    saddr.sin_addr.s_addr = htonl(0x7f000001ul); /* 127.0.0.1 */
     saddr.sin_family = AF_INET;
-    saddr.sin_port = htons(23893);
+    saddr.sin_port = htons(port);
 
     if ((sfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
@@ -794,7 +796,7 @@ static void socket_disconnect(void)
         mt_assert(0);
     }
 
-    pthread_create(&client_t, NULL, client, NULL);
+    pthread_create(&client_t, NULL, client, &port);
 
     if ((cfd = accept(sfd, NULL, NULL)) < 0)
     {
