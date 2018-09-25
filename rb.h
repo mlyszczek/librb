@@ -24,6 +24,8 @@
 #define O_MULTITHREAD 0x10000000L
 struct rb;
 
+#define rb_array_size(a) (sizeof(a)/sizeof(*(a)))
+
 struct rb *rb_new(size_t count, size_t object_size, unsigned long flags);
 struct rb *rb_init(size_t count, size_t object_size, unsigned long flags,
     void *mem);

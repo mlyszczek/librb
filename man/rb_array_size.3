@@ -1,0 +1,63 @@
+.TH "rb_array_size" "3" "25 September 2018 (v1.0.1)" "bofc.pl"
+.SH NAME
+.PP
+.B rb_array_size
+- gets number of elements from given array
+.SH SYNOPSIS
+.PP
+.BI "#define rb_array_size(" a ")"
+.SH DESCRIPTION
+This simple macro can be used to quickly calculate number of elements needed
+by
+.BR rb_write (3)
+or
+.BR rb_read (3)
+functions from array.
+.PP
+Let's analyze
+.B int arr[8]
+array.
+Calling rb function like this:
+.B rb_read(rb, arr, sizeof(arr))
+is invalid, as
+.B rb
+will try to copy (assuming
+.B int
+is 4 bytes long) 4 * 8 = 32 elements, and that would cause out of boud write
+to
+.IR arr.
+Instead you need to pass number of elements array contains.
+Now, you could hold define somewhere with array size - or you could use this
+macro to calculate it like that
+.B rb_read(rb, arr, rb_array_size(arr))
+and that will return correct number of elements - 8.
+.PP
+This works only on arrays, don't even think about passing pointer!
+.SH RETURN VALUES
+Number of elements of
+.I a
+array during compile time.
+This cannot fail.
+.SH SEE ALSO
+.PP
+.BR rb_overview (7),
+.BR rb_new (3),
+.BR rb_init (3),
+.BR rb_destroy (3),
+.BR rb_cleanup (3),
+.BR rb_discard (3),
+.BR rb_stop (3),
+.BR rb_stop_signal (3),
+.BR rb_read (3),
+.BR rb_recv (3),
+.BR rb_write (3),
+.BR rb_send (3),
+.BR rb_posix_read (3),
+.BR rb_posix_recv (3),
+.BR rb_posix_write (3),
+.BR rb_posix_send (3),
+.BR rb_clear (3),
+.BR rb_count (3),
+.BR rb_space (3),
+.BR rb_header_size (3),
+.BR rb_version (3)

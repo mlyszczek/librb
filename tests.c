@@ -146,7 +146,7 @@ static void *multi_producer(void *arg)
             index = multi_index++;
             pthread_mutex_unlock(&multi_mutex);
 
-            if (index >= (sizeof(data)/sizeof(*data)))
+            if (index >= rb_array_size(data))
             {
                 return NULL;
             }
@@ -189,7 +189,7 @@ static void *multi_pipe_producer(void *arg)
         index = multi_index++;
         pthread_mutex_unlock(&multi_mutex);
 
-        if (index >= (sizeof(data)/sizeof(*data)))
+        if (index >= rb_array_size(data))
         {
             close(fd);
             return NULL;
@@ -221,7 +221,7 @@ static void *multi_consumer(void *arg)
                 return NULL;
             }
 
-            overflow = index >= sizeof(data)/sizeof(*data);
+            overflow = index >= rb_array_size(data);
 
             if (overflow)
             {
@@ -291,7 +291,7 @@ static void *multi_pipe_consumer(void *arg)
             index = multi_index_count;
             pthread_mutex_unlock(&multi_mutex_count);
 
-            if (index >= sizeof(data)/sizeof(*data))
+            if (index >= rb_array_size(data))
             {
                 /*
                  * we have consumed all there was to consume
@@ -312,7 +312,7 @@ static void *multi_pipe_consumer(void *arg)
             return NULL;
         }
 
-        overflow = index >= sizeof(data)/sizeof(*data);
+        overflow = index >= rb_array_size(data);
 
         if (overflow)
         {
@@ -359,7 +359,7 @@ static void multi_producers_consumers(void)
     /*
      * wait until all indexes has been consumed
      */
-    while (count < sizeof(data)/sizeof(*data))
+    while (count < rb_array_size(data))
     {
         int buf[16];
 
@@ -389,7 +389,7 @@ static void multi_producers_consumers(void)
 
     rb_destroy(tdata.rb);
 
-    for (r = 0, i = 0; i < sizeof(data)/sizeof(*data); ++i)
+    for (r = 0, i = 0; i < rb_array_size(data); ++i)
     {
         r += (data[i] != 1);
     }
@@ -491,7 +491,7 @@ static void multi_file_consumer_producer(void)
         }
     }
 
-    while(count < sizeof(data)/sizeof(*data))
+    while(count < rb_array_size(data))
     {
         int buf[16];
 
@@ -527,7 +527,7 @@ static void multi_file_consumer_producer(void)
 
     rb_destroy(rb);
 
-    for (r = 0, i = 0; i < sizeof(data)/sizeof(*data); ++i)
+    for (r = 0, i = 0; i < rb_array_size(data); ++i)
     {
         r += data[i] != 1;
     }
@@ -727,7 +727,7 @@ static void peeking(void)
     int d[8];
     int i;
 
-    for (i = 0; i != sizeof(v)/sizeof(*v); ++i)
+    for (i = 0; i != rb_array_size(v); ++i)
     {
         d[i] = i;
     }
