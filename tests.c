@@ -69,14 +69,15 @@ static int multi;
 static int t_num_producers;
 static int t_num_consumers;
 static int data[255];
-static pthread_mutex_t multi_mutex;
-static pthread_mutex_t multi_mutex_count;
 static unsigned int multi_index;
 static volatile unsigned int multi_index_count;
 
 mt_defs();
 
 #if ENABLE_THREADS
+static pthread_mutex_t multi_mutex;
+static pthread_mutex_t multi_mutex_count;
+
 static void *consumer(void *arg)
 {
     struct tdata *data = arg;
