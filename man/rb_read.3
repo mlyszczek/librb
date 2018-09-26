@@ -290,7 +290,7 @@ Reading frames by multiple parsers. Error handling ommited for clarity.
              * rb object set during creation of rb
              */
 
-            if (rb_fd_write(rb, fd, LONG_MAX / OBJECT_SIZE) == -1)
+            if (rb_posix_write(rb, fd, LONG_MAX / OBJECT_SIZE) == -1)
             {
                 if (errno == ECANCELED)
                 {
