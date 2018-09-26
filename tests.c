@@ -249,11 +249,14 @@ static void *multi_consumer(void *arg)
                  * force exit received
                  */
 
-                mt_fail(errno == ECANCELED);
-                return NULL;
+                int *e = malloc(sizeof(int));
+                *e = errno;
+                return e;
             }
         }
     }
+
+    return NULL;
 }
 
 static void *multi_pipe_consumer(void *arg)
@@ -516,7 +519,10 @@ static void multi_file_consumer_producer(void)
     {
         for (i = 0; i != t_num_consumers; ++i)
         {
-            pthread_join(cons[i], NULL);
+            int *r;
+            pthread_join(cons[i], (void **)&r);
+            mt_fail(*r == ECANCELED);
+            free(r);
         }
         pthread_join(*prod, NULL);
         pthread_join(pipet, NULL);
