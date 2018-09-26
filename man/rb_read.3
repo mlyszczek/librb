@@ -55,6 +55,27 @@ number than call it in a loop with
 .I count
 == 1.
 .PP
+Altough
+.I count
+is of
+.B size_t
+type, functions will not read more than
+.B LONG_MAX
+elements.
+If
+.I count
+is bigger than
+.B LONG_MAX
+it will be set to
+.B LONG_MAX
+internaly anyway.
+Also make sure that formula
+.IR count * rb->object_size
+does not exceed
+.B size_t
+type or you will overflow internal integer and that will result in Undefined
+Behaviour.
+.PP
 By default buffer works in single-threaded mode.
 In this mode all calls on
 .I rb
@@ -259,11 +280,17 @@ Reading frames by multiple parsers. Error handling ommited for clarity.
              * NOTE: rb will now be locked from writing, only
              * this thread will be able to write to rb, don't
              * try to call another rb_write() function, it will
-             * be blocked until this function return (SIZE_MAX
-             * bytes have been read from fd) or error occurs
+             * be blocked until this function returns - and it
+             * may take a while to read LONG_MAX / OBJECT_SIZE.
+             *
+             * LONG_MAX / OBJECT_SIZE is passed as count because
+             * we want this function to be called as rarely as
+             * possible, and still we don't want to overflow
+             * internal integer. OBJECT_SIZE is size of a single
+             * rb object set during creation of rb
              */
 
-            if (rb_fd_write(rb, fd, SIZE_MAX) == -1)
+            if (rb_fd_write(rb, fd, LONG_MAX / OBJECT_SIZE) == -1)
             {
                 if (errno == ECANCELED)
                 {

@@ -58,6 +58,27 @@ number instead of calling it in a loop with
 .I count
 == 1.
 .PP
+Altough
+.I count
+is of
+.B size_t
+type, functions will not write more than
+.B LONG_MAX
+elements.
+If
+.I count
+is bigger than
+.B LONG_MAX
+it will be set to
+.B LONG_MAX
+internaly anyway.
+Also make sure that formula
+.IR count * rb->object_size
+does not exceed
+.B size_t
+type or you will overflow internal integer and that will result in Undefined
+Behaviour.
+.PP
 By default
 .B rb
 works in single-threaded mode.

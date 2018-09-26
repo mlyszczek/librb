@@ -53,6 +53,7 @@
 #endif /* HAVE_ASSERT_H */
 
 #include <errno.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2056,6 +2057,16 @@ long rb_recv
     VALID(EINVAL, buffer);
     VALID(EINVAL, rb->buffer);
 
+    if (count > (size_t)LONG_MAX)
+    {
+        /*
+         * function cannot read more than LONG_MAX count of  elements,  trim
+         * users count to acceptable value
+         */
+
+        count = LONG_MAX;
+    }
+
 #if ENABLE_THREADS
     if ((rb->flags & O_MULTITHREAD) == 0)
     {
@@ -2132,6 +2143,16 @@ long rb_posix_recv
     VALID(EINVAL, rb);
     VALID(EINVAL, rb->buffer);
     VALID(EINVAL, fd >= 0);
+
+    if (count > (size_t)LONG_MAX)
+    {
+        /*
+         * function cannot read more than LONG_MAX count of  elements,  trim
+         * users count to acceptable value
+         */
+
+        count = LONG_MAX;
+    }
 
 #   if ENABLE_THREADS
 
@@ -2233,6 +2254,16 @@ long rb_send
     VALID(EINVAL, buffer);
     VALID(EINVAL, rb->buffer);
 
+    if (count > (size_t)LONG_MAX)
+    {
+        /*
+         * function cannot read more than LONG_MAX count of  elements,  trim
+         * users count to acceptable value
+         */
+
+        count = LONG_MAX;
+    }
+
 #if ENABLE_THREADS
     if ((rb->flags & O_MULTITHREAD) == 0)
     {
@@ -2293,6 +2324,16 @@ long rb_posix_send
     VALID(EINVAL, rb);
     VALID(EINVAL, rb->buffer);
     VALID(EINVAL, fd >= 0);
+
+    if (count > (size_t)LONG_MAX)
+    {
+        /*
+         * function cannot read more than LONG_MAX count of  elements,  trim
+         * users count to acceptable value
+         */
+
+        count = LONG_MAX;
+    }
 
 #   if ENABLE_THREADS
 
