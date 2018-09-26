@@ -118,6 +118,16 @@ and then one thread that will parse it.
 This way you can get rid of polling each interface for data, which will speed
 up execution - check example below.
 .PP
+It is valid for
+.BR rb_posix_write (3)
+to make early return with return value less than
+.I count
+elements.
+This will happen when internal
+.BR write ()
+returns zero, which may mean we read end of the file, or remote computer closed
+network connection.
+.PP
 When multiple threads access single
 .I rb
 object, in blocking way, it is guaranteed that each thread will write continous
