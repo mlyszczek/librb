@@ -858,6 +858,7 @@ static long rb_recvt
             pthread_mutex_unlock(&rb->rlock);
             trace(("read unlock"));
             trace(("i/force exit"));
+            errno = ECANCELED;
             return -1;
         }
 
@@ -1336,6 +1337,7 @@ long rb_sendt
             pthread_mutex_unlock(&rb->wlock);
             trace(("i/write unlock"));
             trace(("i/force exit"));
+            errno = ECANCELED;
             return -1;
         }
 

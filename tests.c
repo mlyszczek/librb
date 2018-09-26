@@ -249,6 +249,7 @@ static void *multi_consumer(void *arg)
                  * force exit received
                  */
 
+                mt_fail(errno == ECANCELED);
                 return NULL;
             }
         }
