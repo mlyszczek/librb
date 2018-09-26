@@ -939,6 +939,12 @@ static long rb_recvt
             if (sact == -1)
             {
                 trace(("e/select() %s", strerror(errno)));
+
+                if (rb->force_exit == 1)
+                {
+                    errno = ECANCELED;
+                }
+
                 pthread_mutex_unlock(&rb->lock);
                 trace(("i/rb unlock"));
                 return -1;
@@ -1441,10 +1447,23 @@ long rb_sendt
             if (sact == -1)
             {
                 trace(("e/select() %s", strerror(errno)));
+
+                if (rb->force_exit == 1)
+                {
+                    /*
+                     * if select was interrupted by us, overwrite  errno  to
+                     * ECANCELED, or else it might be EINTR,  which  may  be
+                     * missleading for user.
+                     */
+
+                    errno = ECANCELED;
+                }
+
                 pthread_mutex_unlock(&rb->lock);
                 trace(("i/rb unlock"));
                 pthread_mutex_unlock(&rb->wlock);
                 trace(("i/write unlock"));
+
                 return -1;
             }
 
