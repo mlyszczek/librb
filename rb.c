@@ -947,6 +947,8 @@ static long rb_recvt
 
                 pthread_mutex_unlock(&rb->lock);
                 trace(("i/rb unlock"));
+                pthread_mutex_unlock(&rb->rlock);
+                trace(("read unlock"));
                 return -1;
             }
 
