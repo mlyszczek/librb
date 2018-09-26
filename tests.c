@@ -164,14 +164,9 @@ static void *multi_producer(void *arg)
         {
             if (rb_posix_write(rb, fd, 1) == -1)
             {
-                if (errno == ECANCELED)
-                {
-                    /*
-                     * stop, no more, rb is not valid any more
-                     */
-
-                    return NULL;
-                }
+                int *e = malloc(sizeof(int));
+                *e = errno;
+                return e;
             }
         }
     }
@@ -534,7 +529,10 @@ static void multi_file_consumer_producer(void)
         pthread_join(pipet, NULL);
         for (i = 0; i != t_num_producers; ++i)
         {
-            pthread_join(prod[i], NULL);
+            int *r;
+            pthread_join(prod[i], (void **)&r);
+            mt_fail(*r == ECANCELED);
+            free(r);
         }
         close(prod_data.fd);
     }
