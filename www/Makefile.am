@@ -5,6 +5,6 @@ www:
 	chmod a+rX out -R
 
 clean-local:
-	$(RM) -r out
-	$(RM) -r manuals
-	$(RM) downloads.html
+	rm -fr out
+	rm -fr manuals
+	rm -f downloads.html
