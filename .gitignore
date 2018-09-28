@@ -21,6 +21,11 @@ configure
 coverage.info
 coveragereport/
 depcomp
+examples/event_loop
+examples/no_dynamic_allocations
+examples/posix_network_parser
+examples/prod_cons_threads
+examples/simple_read_write
 install-sh
 librb-*.tar.gz
 librb-*.tar.gz.sha1

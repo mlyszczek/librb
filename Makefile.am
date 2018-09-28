@@ -46,4 +46,21 @@ www:
 	./man2html.sh
 	make www -C www
 
-.PHONY: www analyze tests librb.la
+examples:
+	make -C examples
+
+# clean targets
+
+clean_www:
+	make clean -C www
+
+clean_targets = clean_www
+
+if HAVE_GCOV
+clean_targets += clean-gcov
+endif
+
+clean-local: $(clean_targets)
+	make clean -C examples
+
+.PHONY: examples clean_www www analyze tests librb.la

@@ -134,6 +134,13 @@ for tests run:
 $ make check
 ~~~
 
+to build examples, simply run, compiled examples will be shows in ./examples
+directory
+
+~~~
+$ make examples
+~~~
+
 Build time options
 ==================
 

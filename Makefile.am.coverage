@@ -22,7 +22,7 @@ clean-coverage-html: clean-gcda
 	-$(LCOV) --directory $(top_builddir) -z
 	-rm -rf coverage.info coveragereport
 
-clean-local: clean-coverage-html
+clean-gcov: clean-coverage-html
 
 endif # HAVE_GCOV
 
