@@ -1,5 +1,5 @@
 CFLAGS += -I$(top_srcdir)
-bin_PROGRAMS = event_loop \
+EXTRA_PROGRAMS = event_loop \
 	no_dynamic_allocations \
 	posix_network_parser \
 	prod_cons_threads \
@@ -10,3 +10,8 @@ no_dynamic_allocations_SOURCES = no-dynamic-allocations.c rb.c
 posix_network_parser_SOURCES = posix-network-parser.c rb.c
 prod_cons_threads_SOURCES = prod-cons-threads.c rb.c
 simple_read_write_SOURCES = simple-read-write.c rb.c
+
+examples: $(EXTRA_PROGRAMS)
+
+clean-local:
+	rm -f $(EXTRA_PROGRAMS)

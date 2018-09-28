@@ -12,3 +12,5 @@ man_MANS = rb_clear.3 \
 		   rb_write.3 \
 		   rb_stop.3
 EXTRA_DIST = $(man_MANS)
+
+clean:

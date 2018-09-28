@@ -38,7 +38,7 @@ endif
 
 # building website and manuals
 
-SUBDIRS = man www
+SUBDIRS = man www examples
 EXTRA_DIST = gen-download-page.sh man2html.sh readme.md tap-driver.sh
 
 www:
@@ -47,20 +47,16 @@ www:
 	make www -C www
 
 examples:
-	make -C examples
+	make examples -C examples
 
 # clean targets
 
-clean_www:
-	make clean -C www
-
-clean_targets = clean_www
+clean_targets=
 
 if HAVE_GCOV
 clean_targets += clean-gcov
 endif
 
 clean-local: $(clean_targets)
-	make clean -C examples
 
 .PHONY: examples clean_www www analyze tests librb.la

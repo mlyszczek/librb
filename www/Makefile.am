@@ -4,7 +4,7 @@ www:
 	kursg -o out
 	chmod a+rX out -R
 
-make clean:
+clean-local:
 	$(RM) -r out
 	$(RM) -r manuals
 	$(RM) downloads.html

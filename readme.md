@@ -141,6 +141,12 @@ directory
 $ make examples
 ~~~
 
+Examples
+========
+
+Example codes can be found here:
+[http://git.kurwinet.pl/librb/tree/examples][examples]
+
 Build time options
 ==================
 
@@ -214,3 +220,5 @@ See also
 [fsleak]: http://ci.librb.kurwinet.pl/badges/fsanitize-leak.svg
 [fsthread]: http://ci.librb.kurwinet.pl/badges/fsanitize-thread.svg
 [fsun]: http://ci.librb.kurwinet.pl/badges/fsanitize-undefined.svg
+
+[examples]: http://git.kurwinet.pl/librb/tree/examples
