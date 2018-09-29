@@ -1401,6 +1401,7 @@ static void fd_single_multibyte(void)
     rb = rb_new(128, sizeof(int), 0);
     mt_ferr(rb_posix_write(rb, fd, 100), EINVAL);
     mt_ferr(rb_posix_read(rb, fd, 100), EINVAL);
+    rb_destroy(rb);
 }
 
 static void fd_read_single_overlap(void)
