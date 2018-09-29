@@ -57,6 +57,7 @@ struct multi_data
     struct rb *rb;
     const char *pipe;
     int fd;
+    int objsize;
 };
 
 static int t_rblen;
@@ -145,6 +146,7 @@ static void *multi_producer(void *arg)
     int fd = d->fd;
     unsigned int index;
 
+    index = 0;
     for (;;)
     {
         if (fd == -1)
@@ -158,7 +160,15 @@ static void *multi_producer(void *arg)
                 return NULL;
             }
 
-            rb_write(rb, &index, 1);
+            if (d->objsize == 1)
+            {
+                unsigned char i = index;
+                rb_write(rb, &i, 1);
+            }
+            else
+            {
+                rb_write(rb, &index, 1);
+            }
         }
         else
         {
@@ -176,7 +186,7 @@ static void *multi_pipe_producer(void *arg)
 {
     struct multi_data *d = arg;
     struct rb *rb = d->rb;
-    unsigned int index;
+    unsigned char index;
     int fd;
 
 #if defined(__OpenBSD__)
@@ -214,8 +224,20 @@ static void *multi_consumer(void *arg)
 
         if (fd == -1)
         {
-            index = 0;
-            if (rb_read(rb, &index, 1) == -1)
+            long ret;
+
+            if (d->objsize == 1)
+            {
+                unsigned char i;
+                ret = rb_read(rb, &i, 1);
+                index = i;
+            }
+            else
+            {
+                ret = rb_read(rb, &index, 1);
+            }
+
+            if (ret == -1)
             {
                 /*
                  * force exit received
@@ -259,7 +281,7 @@ static void *multi_pipe_consumer(void *arg)
 {
     struct multi_data *d = arg;
     struct rb *rb = d->rb;
-    unsigned int index;
+    unsigned char index;
     int fd;
 
 #if defined(__OpenBSD__)
@@ -271,7 +293,6 @@ static void *multi_pipe_consumer(void *arg)
     for (;;)
     {
         unsigned int overflow;
-        index = -1u;
 
         struct timeval tv;
         fd_set fds;
@@ -351,6 +372,7 @@ static void multi_producers_consumers(void)
 
     tdata.rb = rb_new(8, sizeof(unsigned int), O_MULTITHREAD);
     tdata.fd = -1;
+    tdata.objsize = sizeof(unsigned int);
 
     pthread_mutex_init(&multi_mutex, NULL);
     pthread_mutex_init(&multi_mutex_count, NULL);
@@ -442,6 +464,10 @@ static void multi_file_consumer_producer(void)
 
     pthread_mutex_init(&multi_mutex, NULL);
     pthread_mutex_init(&multi_mutex_count, NULL);
+
+    prod_data.objsize = 1;
+    cons_data.objsize = 1;
+    pipe_data.objsize = 1;
 
     if (multi == MULTI_CONSUMERS)
     {
