@@ -2142,6 +2142,7 @@ long rb_posix_recv
 
     VALID(EINVAL, rb);
     VALID(EINVAL, rb->buffer);
+    VALID(EINVAL, rb->object_size == 1);
     VALID(EINVAL, fd >= 0);
 
     if (count > (size_t)LONG_MAX)
@@ -2323,6 +2324,7 @@ long rb_posix_send
 
     VALID(EINVAL, rb);
     VALID(EINVAL, rb->buffer);
+    VALID(EINVAL, rb->object_size == 1);
     VALID(EINVAL, fd >= 0);
 
     if (count > (size_t)LONG_MAX)

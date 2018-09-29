@@ -1,1 +1,312 @@
-.so man3/rb_read.3
+.TH "rb_posix_read" "3" "29 September 2018 (v1.0.0)" "bofc.pl"
+.SH NAME
+.PP
+.BR rb_posix_read ,
+.B rb_posix_recv
+- functions to directly send data from ring buffer to object associated with
+file descriptor.
+.SH SYNOPSIS
+.PP
+.BI "#include <librb.h>"
+.PP
+.BI "long rb_posix_read(struct rb *" rb ", int " fd ", size_t " count ");"
+.br
+.BI "long rb_posix_recv(struct rb *" rb ", int " fd ", size_t " count ", \
+unsigned long " flags ");"
+.PP
+Feature Test Macro:
+.PP
+.BR rb_posix_read (),
+.BR rb_posix_recv ():
+.RS
+ENABLE_POSIX_CALLS
+.RE
+.SH DESCRIPTION
+.PP
+.BR rb_posix_read (3)
+copies at most
+.I count
+.B bytes
+from ring buffer
+.I rb
+to object associated with
+.I fd
+file descriptor.
+.PP
+.BR rb_posix_read (3)
+works in the same way as
+.BR rb_read (3)
+but instead of copying data to
+.I buffer
+it copies data to whatever is pointed by
+.I fd
+file descriptor.
+This may be ordinary file on disk, or pipe, or serial device, or network socket.
+This is convenient function that may be useful when constructing packet frame to
+send. You could first prepare packet byte by byte with
+.BR rb_write (3)
+and then send whole packet with
+.BR rb_posix_read (3)
+function in on single burst.
+Calling multiple
+.BR rb_write (3)
+followed by single
+.BR rb_posix_read (3)
+to send frame, will be way faster than calling multiple
+.BR write ()
+system call functions.
+.PP
+Another change is that while ordinary
+.B rb_read (3)
+works on
+.BR elements ,
+.B rb_posix_read (3)
+works solely on
+.B bytes
+and thus
+.I rb
+object
+.B must
+be created with
+.I object_size
+set to 1 or these functions will return
+.B EINVAL
+error.
+This is due to the fact, that
+.B rb
+uses
+.BR write ()
+under the hood which works on bytes.
+Reason for such limitation is that
+.BR write ()
+may return after writing two and a half of object size and second half of
+third object would be lost causing mayheem in communication stream.
+Fixing that would require blocking calling thread and
+.B rb
+cannot make that such decision for the user.
+So if you want to send 5 frames of data in one call, you need to do
+.BR "rb_posix_read(rb, fd, 5 * sizeof(data_frame))" .
+.PP
+.BR rb_posix_recv (3)
+work the same as
+.BR rb_posix_read (3)
+but it also accepts
+.IR flags .
+Possible
+.I flags
+are:
+.TP
+.B MSG_DONTWAIT
+Only works in multi threaded environment, on single threaded mode this is
+default.
+When passed and
+.I rb
+contains less
+.B bytes
+than passed in
+.IR count ,
+function will copy all bytes from
+.I rb
+into
+.I fd
+and will return immediately.
+This means, function will never block, no matter what.
+Not recommended when multiple threads calls
+.BR rb_read (3)
+with this flag - may lead to interlaced reads
+.TP
+.B MSG_PEEK
+Reads from
+.I rb
+into
+.I fd
+as normal, but doesn't remove data from
+.IR rb ,
+so consecutive calls to this function will return same data (provided
+that nobody called
+.BR rb_posix_recv (3)
+without this flag).
+When this is called in threaded environment enabled, functions will act as if
+.B MSG_DONTWAIT
+flag was also passed.
+It is guaranteed that calling function with this flag, will not alter internal
+state of
+.IR rb object .
+.SH EXAMPLE
+.PP
+Reading frames by multiple parsers.
+Error handling ommited for clarity.
+.I rb
+object is assumed to be created with
+.B object_size
+equals to 1.
+.EX
+.PP
+    void *parser(void *arg)
+    {
+        struct rb *rb = arg;
+
+        for (;;)
+        {
+            struct frame f;
+
+            /* when rb was created with O_MULTITHREAD, this function
+             * is guaranteed to store exactly sizeof(f) data, and
+             * this data will be continous, that is no other parser
+             * thread will wake up, and take any byte in the middle
+             * of our read (that is if rb_read doesn't return -1)
+             */
+
+            if (rb_read(rb, &f, sizeof(f)) == -1)
+            {
+                if (errno == ECANCELED)
+                {
+                    /* rb_stop() has been called, rb object should
+                     * not be used any more
+                     */
+
+                    break;
+                }
+
+                /* some other error */
+            }
+
+            /* f object will be valid here, some frame processing
+             * stuff can be made here
+             */
+        }
+
+        /* perform cleanup */
+        return NULL;
+    }
+
+    void loop(struct rb *rb)
+    {
+        int fd, i;
+        pthread_t parsers[4];
+
+        fd = init_client_socket();
+
+        for(i = 0; i != 4; ++i)
+        {
+            /* create parser threads, they will block in rb_read()
+             * as we didn't put any data to rb yet
+             */
+
+            pthread_create(&parsers[i], NULL, parse, rb);
+        }
+
+        for (;;)
+        {
+            /* read data from fd socket and write them to rb
+             * for further processing, we set count to max
+             * value for performance as we don't need it to
+             * return (unless error occurs)
+             *
+             * NOTE: rb will now be locked from writing, only
+             * this thread will be able to write to rb, don't
+             * try to call another rb_write() function, it will
+             * be blocked until this function returns - and it
+             * may take a while to read LONG_MAX bytes.
+             *
+             * LONG_MAX is passed as count because we want this
+             * function to be called as rarely as possible, and
+             * still we don't want to overflow internal integer.
+             *
+             * You could also pass '-1' here, it would be casted
+             * to unsigned type and the it would be reduced to
+             * LONG_MAX anyway.
+             */
+
+            if (rb_posix_write(rb, fd, LONG_MAX) == -1)
+            {
+                if (errno == ECANCELED)
+                {
+                    /* rb_stop() has been called, we shouldn't
+                     * use rb object anymore
+                     */
+
+                    break;
+                }
+            }
+        }
+
+        for (i = 0; i != 4; ++i)
+        {
+            /* join all parsers, so rb_destory() can be safely
+             * called
+             */
+
+            pthread_join(parsers[i], NULL);
+        }
+    }
+.EE
+.SH RETURN VALUES
+.PP
+On successfull read, function will return number of
+.B bytes
+it read from
+.I rb
+object and stored in
+.I fd
+file descriptor.
+Returned value can be less than
+.I count
+if
+.I rb
+doesn't contain enough data and function operates in non blocking mode.
+On errors function returns -1, in such case,
+.I rb
+is left intact.
+.SH ERRORS
+.TP
+.B EINVAL
+Any of the passed pointers is NULL.
+.B EINVAL
+.BR rb_posix_read (3)
+was called when
+.I rb
+object was created with
+.B object_size
+different than 1.
+.TP
+.B EAGAIN
+This error will be set, when
+.I rb
+is operating in non blocking mode, and there is no data to be read from
+.I rb
+immediately.
+.TP
+.B ECANCELED
+.BR rb_stop (3)
+was called, and operation was cancelled, because
+.I rb
+object is about to be destroyed.
+You should not access
+.I rb
+object after you receive this error.
+Otherwise you will probably get deadlock or application will crash.
+Returned only if threads are enabled.
+.TP
+.B ENOSYS
+Function is not implemented (was not compiled in).
+.SH SEE ALSO
+.PP
+.BR rb_overview (7),
+.BR rb_new (3),
+.BR rb_init (3),
+.BR rb_destroy (3),
+.BR rb_cleanup (3),
+.BR rb_discard (3),
+.BR rb_stop (3),
+.BR rb_stop_signal (3),
+.BR rb_write (3),
+.BR rb_send (3),
+.BR rb_posix_write (3),
+.BR rb_posix_send (3),
+.BR rb_clear (3),
+.BR rb_count (3),
+.BR rb_space (3),
+.BR rb_header_size (3),
+.BR rb_array_size (3),
+.BR rb_version (3)

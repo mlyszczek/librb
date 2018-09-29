@@ -2,9 +2,7 @@
 .SH NAME
 .PP
 .BR rb_write ,
-.BR rb_send ,
-.BR rb_posix_write ,
-.B rb_posix_send
+.B rb_send
 - functions to put data on ring buffer
 .SH SYNOPSIS
 .PP
@@ -15,20 +13,6 @@ size_t " count ");"
 .br
 .BI "long rb_send(struct rb *" rb ", const void *" buffer ", \
 size_t " count ", unsigned long " flags ");"
-.br
-.BI "long rb_posix_write(struct rb *" rb ", int " fd ", \
-size_t " count ");"
-.br
-.BI "long rb_posix_send(struct rb *" rb ", int " fd ", \
-size_t " count ", unsigned long " flags ");"
-.PP
-Feature Test Macro:
-.PP
-.BR rb_posix_write (),
-.BR rb_posix_send ():
-.RS
-ENABLE_POSIX_CALLS
-.RE
 .SH DESCRIPTION
 .PP
 .BR rb_write (3)
@@ -73,7 +57,9 @@ it will be set to
 .B LONG_MAX
 internaly anyway.
 Also make sure that formula
-.IR count * rb->object_size
+.I count
+*
+.I rb->object_size
 does not exceed
 .B size_t
 type or you will overflow internal integer and that will result in Undefined
@@ -95,7 +81,7 @@ as there is space for inside
 .B rb
 and will immediately return.
 If
-.BR write (3)
+.BR rb_write (3)
 is called when buffer is full,
 .B EAGAIN
 error will be returned.
@@ -115,39 +101,6 @@ then there is space left, calling thread will be put to sleep - and thus will
 use no CPU - until someone else calls
 .BR rb_read (3)
 to read data from buffer and makes some space.
-.PP
-.BR rb_posix_write (3)
-works in the same way as
-.BR rb_write (3)
-but instead of copying data from
-.I buffer
-to
-.I rb
-object, it will copy data from whatever is associated with
-.I fd
-file descriptor
-.I rb
-object.
-This may be ordinary file on disk, or pipe, or seria ldevice, or network socket.
-This is convenient function that may be useful when you want to read same frame
-from multiple sources - like allowing to control embedded device via serial,
-network and fifo simultaneously.
-You can create 3 threads that will read data
-to
-.I rb
-and then one thread that will parse it.
-This way you can get rid of polling each interface for data, which will speed
-up execution - check example below.
-.PP
-It is valid for
-.BR rb_posix_write (3)
-to make early return with return value less than
-.I count
-elements.
-This will happen when internal
-.BR write ()
-returns zero, which may mean we read end of the file, or remote computer closed
-network connection.
 .PP
 When multiple threads access single
 .I rb
@@ -172,13 +125,9 @@ first thread will put second half of its frame - now frames are corrupted and
 not really usable.
 .PP
 .BR rb_send (3)
-and
-.BR rb_posix_send (3)
 work the same way as
 .BR rb_write (3)
-and
-.BR rb_posix_write (3)
-but also accept following
+but also accepts following
 .IR flags :
 .TP
 .B MSG_DONTWAIT
@@ -200,109 +149,6 @@ and will return immediately.
 Not recommended when multiple concurent threads calls
 .BR rb_write (3)
 with this flag - may lead to interlaced reads.
-.SH EXAMPLE
-.PP
-Reading frames from multiple sockets and parse them in one thread.
-As usual, error handling ommited for clarity.
-.EX
-.PP
-    struct tdata
-    {
-        struct rb *rb;
-        int fd;
-    };
-
-    void *receiver(void *arg)
-    {
-        struct tdata *data = arg;
-
-        for (;;)
-        {
-            /* rb_posix_write() will sleep current thread until
-             * data shows up on data->fd file descriptor.
-             *
-             * NOTE: you should be carefull here, as calling this
-             * function on slow data->fd will block other threads.
-             * rb will try to call read() on data->fd and read()
-             * will block until any data shows on data->fd, and
-             * if data->fd is slow, this may take a long time.
-             */
-
-            if (rb_posix_write(data->rb, data->fd,
-                    sizeof(struct data_frame) == -1)
-            {
-                if (errno == ECANCELED)
-                {
-                    /* rb_stop() has been called, rb shouldn't
-                     * be used any more
-                     */
-                    break;
-                }
-            }
-        }
-    }
-
-    void loop(struct rb *rb)
-    {
-        struct tdata tdata[3];
-        pthread_t receivers[3];
-        int i;
-
-        tdata[0].rb = rb;
-        tdata[0].fd = get_network_socket();
-
-        tdata[1].rb = rb;
-        tdata[1].fd = get_serial_socket();
-
-        tdata[2].rb = rb;
-        tdata[2].fd = get_fifo_socket();
-
-        for (i = 0; i != 3; ++i)
-        {
-            /* create multiple threads that will read data from
-             * sockets and put that data into rb. Pretty nice
-             * way to eliminate polling, as these threads will
-             * wake only when there is data available
-             /
-
-            pthread_create(&receivers[i], NULL, receiver, &tdata[i]);
-        }
-
-        for (;;)
-        {
-            /* receivers are started and will populate our rb with
-             * frames over time, rb guarantees all frames here will
-             * be valid (if they come valid from socket that is)
-             */
-
-            struct data_frame f;
-
-            if (rb_read(rb, &f, sizeof(f)) == -1)
-            {
-                if (errno == ECANCELED)
-                {
-                    /* rb_stop() has been called, we shouldn't
-                     * use rb object anymore
-                     */
-
-                    break;
-                }
-            }
-
-            process_frame(&f);
-        }
-
-        for (i = 0; i != 3; ++i)
-        {
-            /* join all threads using rb object, so rb_destroy()
-             * can be called safely
-             */
-
-            pthread_join(receivers[i], NULL);
-        }
-    }
-
-.EE
 .SH RETURN VALUES
 .PP
 On successfull write, function will return number of
@@ -314,9 +160,6 @@ Returned value can be less than
 if
 .I rb
 doesn't contain enough free space and function operates in non blocking mode.
-In such case it is also ok for function to return 0 - meaning
-.I rb
-is full.
 On errors function returns -1, in such case,
 .I rb
 buffer is left intact.
@@ -344,9 +187,6 @@ You should not access
 object after you receive this error.
 Otherwise you will probably get deadlock or application will crash.
 Returned only if threads are enabled.
-.TP
-.B ENOSYS
-Function is not implemented (was not compiled in).
 .SH SEE ALSO
 .PP
 .BR rb_overview (7),
