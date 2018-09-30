@@ -1919,6 +1919,8 @@ static int rb_cleanup_p
     pthread_cond_destroy(&rb->wait_data);
     pthread_cond_destroy(&rb->wait_room);
     pthread_mutex_destroy(&rb->lock);
+    pthread_mutex_destroy(&rb->rlock);
+    pthread_mutex_destroy(&rb->wlock);
 
     return 0;
 }
