@@ -65,8 +65,6 @@ AS_IF([test "x$enable_posix_calls" = "xyes"],
 [
     AC_DEFINE([ENABLE_POSIX_CALLS], [1], [Enable posix helper functions])
     AC_CHECK_HEADERS(unistd.h sys/select.h)
-    AC_CHECK_FUNCS([read write select],,
-        AC_MSG_ERROR(not found, needed by --enable-posix-calls))
 ],
 # else
 [
@@ -84,8 +82,6 @@ AS_IF([test "x$enable_trace" = "xyes"],
 [
     AC_DEFINE([TRACE_LOG], [1], [Enable trace logging from librb])
     AC_CHECK_HEADERS([stdio.h syscall.h unistd.h])
-    AC_CHECK_FUNCS([fprintf],,
-        AC_MSG_ERROR(not found, needed by --enable-trace))
 ],
 # else
 [
