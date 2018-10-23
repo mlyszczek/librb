@@ -1379,6 +1379,7 @@ static void fd_write_enosys(void)
     rb = rb_new(16, 1, 0);
     mt_ferr(rb_posix_write(rb, 0, 1), ENOSYS);
     mt_ferr(rb_posix_send(rb, 0, 1, 0), ENOSYS);
+    rb_destroy(rb);
 }
 
 static void fd_read_single(void)
