@@ -1,0 +1,5 @@
+librb (${VERSION}) stable; urgency=low
+
+    * librb package
+
+ -- Michał Łyszczek <michal.lyszczek@bofc.pl>  ${DATE}
