@@ -8,6 +8,7 @@
  */
 
 #include <rb.h>
+#include <stdio.h>
 
 int main(void)
 {
@@ -18,6 +19,7 @@ int main(void)
         return 1;
     }
 
+    fprintf(stderr, "rb works! %p\n", rb);
     rb_destroy(rb);
     return 0;
 }
