@@ -80,9 +80,26 @@ dpkg -i "${project}-dev_${version}_${arch}.deb" || exit 1
 
 failed=0
 gcc ${project}/pkg/test.c -o testprog -lrb || failed=1
+
+if ldd ./testprog | grep "\/usr\/bofc"
+then
+    # sanity check to make sure test program uses system libraries
+    # and not locally installed ones (which are used as build
+    # dependencies for other programs
+
+    echo "test prog uses libs from manualyl installed /usr/bofc \
+        instead of system path!"
+    failed=1
+fi
+
 ./testprog || failed=1
 
 dpkg -r "${project}${abi_version}" "${project}-dev" || exit 1
+
+if [ ${failed} -eq 1 ]
+then
+    exit 1
+fi
 
 if [ -n "${scp_server}" ]
 then
@@ -97,5 +114,3 @@ then
         "${project}_${version}_${arch}.changes" \
         "${scp_server}:${project}/${host_os}/${arch}" || exit 1
 fi
-
-exit ${failed}
