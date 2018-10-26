@@ -106,9 +106,18 @@ fi
 
 if [ -n "${scp_server}" ]
 then
+    dbgsym_pkg="${project}${abi_version}-dbgsym_${version}_${arch}.deb"
+
+    if [ ! -f "${dbgsym_pkg}" ]
+    then
+        # on some systems packages with debug symbols are created with
+        # ddeb extension and not deb
+        dbgsym_pkg="${project}${abi_version}-dbgsym_${version}_${arch}.ddeb"
+    fi
+
     echo "copying data to ${scp_server}:${project}/${host_os}/${arch}"
     scp "${project}-dev_${version}_${arch}.deb" \
-        "${project}${abi_version}-dbgsym_${version}_${arch}.deb" \
+        "${dbgsym_pkg}" \
         "${project}${abi_version}_${version}_${arch}.deb" \
         "${project}_${version}.dsc" \
         "${project}_${version}.tar.xz" \
