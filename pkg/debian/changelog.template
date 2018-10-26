@@ -1,4 +1,4 @@
-librb (${VERSION}) stable; urgency=low
+librb (${VERSION}) ${CODENAME}; urgency=low
 
     * librb package
 

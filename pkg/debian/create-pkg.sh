@@ -50,9 +50,12 @@ echo "abi version ${abi_version}"
 # building package
 #
 
+codename="$(lsb_release -c | awk '{print $2}')"
+
 cp -r "pkg/debian9/" "debian"
 sed -i "s/\${DATE}/$(date -R)/" "debian/changelog.template"
 sed -i "s/\${VERSION}/${version}/" "debian/changelog.template"
+sed -i "s/\${CODENAME}/${codename}/" "debian/changelog.template"
 sed -i "s/\${ABI_VERSION}/${abi_version}/" "debian/control.template"
 
 mv "debian/changelog.template" "debian/changelog"
