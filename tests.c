@@ -86,11 +86,20 @@ static void *consumer(void *arg)
 
     while (r != data->buflen)
     {
+        ssize_t ret;
         size_t left = data->buflen - r;
         left = left < data->len ? left : data->len;
-        r += rb_read(data->rb, data->data + r * data->objsize, left);
+        ret = rb_read(data->rb, data->data + r * data->objsize, left);
+        if (ret == -1)
+        {
+            perror("e/consumer rb_read()");
+            return NULL;
+        }
+        r += ret;
+        fprintf(stderr, "consumer ret %ld, left %zu, consumed %zu\n", ret, data->buflen - r, left);
     }
 
+    fprintf(stderr, "consumer finished\n");
     return data;
 }
 
@@ -116,11 +125,20 @@ static void *producer(void *arg)
 
     while (w != data->buflen)
     {
+        ssize_t ret;
         size_t left = data->buflen - w;
         left = left < data->len ? left : data->len;
-        w += rb_write(data->rb, data->data + w * data->objsize, left);
+        ret = rb_write(data->rb, data->data + w * data->objsize, left);
+        if (ret == -1)
+        {
+            perror("e/producer rb_write()");
+            return NULL;
+        }
+        w += ret;
+        fprintf(stderr, "produced ret %ld, left %zu, produced %zu\n", ret, data->buflen - w, left);
     }
 
+    fprintf(stderr, "producer done\n");
     return data;
 }
 
@@ -586,6 +604,7 @@ static void multi_thread(void)
     pthread_t prod;
     pthread_t cons_file;
     pthread_t prod_file;
+    int ret;
 
     size_t buflen = t_readlen > t_writelen ? t_readlen : t_writelen;
     unsigned char *send_buf = malloc(t_objsize * buflen);
@@ -609,6 +628,8 @@ static void multi_thread(void)
     }
 
     rb = rb_new(t_rblen, t_objsize, O_MULTITHREAD);
+
+    fprintf(stderr, "test start\n");
 
     proddata.data = send_buf;
     proddata.len = t_writelen;
@@ -643,10 +664,21 @@ static void multi_thread(void)
         pthread_create(&prod_file, NULL, producer_file, &consdata);
     }
 
-    pthread_create(&cons, NULL, consumer, &consdata);
-    pthread_create(&prod, NULL, producer, &proddata);
+    if ((ret = pthread_create(&cons, NULL, consumer, &consdata)) != 0)
+    {
+        fprintf(stderr, "pthread_create(cons) failed %s\n", strerror(ret));
+        mt_assert(0);
+    }
 
+    if ((ret = pthread_create(&prod, NULL, producer, &proddata)) != 0)
+    {
+        fprintf(stderr, "pthread_create(prod) failed %s\n", strerror(ret));
+        mt_assert(0);
+    }
+
+    fprintf(stderr, "waiting for consumer to finish\n");
     pthread_join(cons, NULL);
+    fprintf(stderr, "waiting for producer to finish\n");
     pthread_join(prod, NULL);
 
     if (t_multi_test_type == TEST_FD_FILE)
@@ -663,6 +695,11 @@ static void multi_thread(void)
     {
         printf("[%lu] a = %lu, b = %d, c = %d, d = %d\n",
                 c, buflen, t_rblen, t_readlen, t_writelen);
+
+        for (i = 0; i != t_objsize * buflen; ++i)
+        {
+            printf("send_buf %5d, recv_buf %5d\n", send_buf[i], recv_buf[i]);
+        }
     };
 
     close(proddata.fd);
@@ -670,6 +707,7 @@ static void multi_thread(void)
     rb_destroy(rb);
     free(send_buf);
     free(recv_buf);
+    fprintf(stderr, "test done\n");
 }
 
 static void multithread_eagain(void)
