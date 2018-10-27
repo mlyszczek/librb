@@ -34,9 +34,9 @@ cd "${project}"
 
 git checkout "${version}" || exit 1
 
-if [ ! -d "pkg/debian9" ]
+if [ ! -d "pkg/deb" ]
 then
-    echo "pkg/debian9 does not exist, cannot create debian 9 pkg"
+    echo "pkg/deb does not exist, cannot create debian pkg"
     exit 1
 fi
 
@@ -52,7 +52,7 @@ echo "abi version ${abi_version}"
 
 codename="$(lsb_release -c | awk '{print $2}')"
 
-cp -r "pkg/debian9/" "debian"
+cp -r "pkg/deb/" "debian"
 sed -i "s/\${DATE}/$(date -R)/" "debian/changelog.template"
 sed -i "s/\${VERSION}/${version}/" "debian/changelog.template"
 sed -i "s/\${CODENAME}/${codename}/" "debian/changelog.template"
