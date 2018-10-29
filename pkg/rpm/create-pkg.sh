@@ -48,14 +48,31 @@ rpmbuild -ba SPECS/${project}-${pkg_version}.spec || exit 1
 # verify
 #
 
-yum -y install "RPMS/${arch}/${project}-${pkg_version}-${rel_version}.${arch}.rpm" \
-    "RPMS/${arch}/${project}-devel-${pkg_version}-${rel_version}.${arch}.rpm"
+if type zypper >/dev/null
+then
+    # looks like we are dealing with opensuse
+
+    zypper install -y --allow-unsigned-rpm \
+        "RPMS/${arch}/${project}-${pkg_version}-${rel_version}.${arch}.rpm" \
+        "RPMS/${arch}/${project}-devel-${pkg_version}-${rel_version}.${arch}.rpm"
+else
+    # else, assume rhel or centos or fedora or whatever that uses yum
+
+    yum -y install \
+        "RPMS/${arch}/${project}-${pkg_version}-${rel_version}.${arch}.rpm" \
+        "RPMS/${arch}/${project}-devel-${pkg_version}-${rel_version}.${arch}.rpm"
+fi
 
 failure=0
 gcc "BUILD/${project}-${git_version}/pkg/test.c" -lrb -o /tmp/librb-test || failure=1
 /tmp/librb-test || failure=1
 
-yum -y remove "${project}" "${project}-devel"
+if type zypper >/dev/null
+then
+    zypper remove -y "${project}" "${project}-devel"
+else
+    yum -y remove "${project}" "${project}-devel"
+fi
 
 if [ ${failure} -eq 1 ]
 then
