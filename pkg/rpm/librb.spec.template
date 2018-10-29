@@ -31,6 +31,13 @@ librb development package containing headers and manuals
 %prep
 %setup -q -n librb-@{GIT_VERSION}
 
+# debug packge macro, it is commented by default as rhel and centos
+# automatically build debug package, but open suse does not. Change it to
+# "@debug_package" (just change that @ to percent %% character)
+# when debug symbols are not automatically installed
+
+# __DEBUG_PACKAGE__
+
 %build
 ./autogen.sh
 %configure
