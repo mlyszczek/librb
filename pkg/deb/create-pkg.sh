@@ -90,7 +90,7 @@ then
     # and not locally installed ones (which are used as build
     # dependencies for other programs
 
-    echo "test prog uses libs from manualyl installed /usr/bofc \
+    echo "test prog uses libs from manually installed /usr/bofc \
         instead of system path!"
     failed=1
 fi
