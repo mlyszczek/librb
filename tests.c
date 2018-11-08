@@ -753,6 +753,8 @@ static void *client(void *arg)
 {
     struct sockaddr_in saddr;
     int fd;
+    const int max_timeout = 5;
+    int timeout_count;
 
     memset(&saddr, 0x00, sizeof(saddr));
     saddr.sin_addr.s_addr = htonl(0x7f000001ul); /* 127.0.0.1 */
@@ -765,7 +767,7 @@ static void *client(void *arg)
         return NULL;
     }
 
-    for (;;)
+    for (timeout_count = 0;;)
     {
         if (connect(fd, (struct sockaddr *)&saddr, sizeof(saddr)) != 0)
         {
@@ -774,7 +776,16 @@ static void *client(void *arg)
                 continue;
             }
 
-            perror("socket()");
+            if (errno == ETIMEDOUT)
+            {
+                if (timeout_count++ < max_timeout)
+                {
+                    fprintf(stderr, "connect timed out, again\n");
+                    continue;
+                }
+            }
+
+            perror("connect()");
             close(fd);
             return NULL;
         }
