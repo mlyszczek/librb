@@ -25,7 +25,7 @@ wget "https://git.kurwinet.pl/${project}/snapshot/${project}-${git_version}.tar.
     -O "SOURCES/${project}-${pkg_version}.tar.gz"
 wget "https://git.kurwinet.pl/${project}/plain/pkg/rpm/librb.spec.template?h=${git_version}" \
     -O "SPECS/librb-${pkg_version}.spec"
-lt_version="$(curl "https://git.kurwinet.pl/${project}/plain/Makefile.am?h=${git_version}" | \
+lt_version="$(curl "https://git.kurwinet.pl/${project}/plain/rb/Makefile.am?h=${git_version}" | \
     grep "librb_la_LDFLAGS = -version-info" | cut -f4 -d\ )"
 
 current="$(echo ${lt_version} | cut -f1 -d:)"
