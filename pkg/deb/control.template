@@ -1,0 +1,34 @@
+Source: librb
+Section: devel
+Priority: optional
+Maintainer: Michał Łyszczek <michal.lyszczek@bofc.pl>
+Build-Depends: debhelper (>=10), autotools-dev, dh-autoreconf
+Standards-Version: 3.9.8
+Vcs-Git: https://git.kurwinet.pl/librb
+Vcs-browser: https://git.kurwinet.pl/librb
+Homepage: https://librb.kurwinet.pl
+
+Package: librb${ABI_VERSION}
+Section: libs
+Pre-Depends: ${misc:Pre-Depends}
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Library that provides fast, easy to use ring buffer.
+ This is library that provides fast, easy to use ring buffer. It's
+ interface is very similar to read/write interface from POSIX. It
+ also provides optional thread awarness and thread safety for
+ concurrent access. If used without threads there are 0 (zero)
+ syscalls, everything is done in user's process without kernel
+ interfering and stealing precious cpu cycles.
+
+Package: librb-dev
+Section: libdevel
+Depends: librb${ABI_VERSION} (= ${binary:Version}), ${misc:Depends}
+Architecture: any
+Description: Library that provides fast, easy to use ring buffer.
+ This is library that provides fast, easy to use ring buffer. It's
+ interface is very similar to read/write interface from POSIX. It
+ also provides optional thread awarness and thread safety for
+ concurrent access. If used without threads there are 0 (zero)
+ syscalls, everything is done in user's process without kernel
+ interfering and stealing precious cpu cycles.
