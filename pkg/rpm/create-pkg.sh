@@ -43,11 +43,11 @@ sed -i "s/@{LIB_VERSION}/${lib_version}/" SPECS/${project}-${pkg_version}.spec
 sed -i "s/@{ABI_VERSION}/${abi_version}/" SPECS/${project}-${pkg_version}.spec
 
 
-if cat /etc/os-release | grep "NAME=openSUSE Leap"
+if cat /etc/os-release | grep "openSUSE Leap"
 then
     # opensuse doesn't generate debug symbols by defaul, check spec file
     # for comment
-    sed -i 's/# __DEBUG_PACKAGE_/%debug_package/' \
+    sed -i 's/# __DEBUG_PACKAGE__/%debug_package/' \
         SPECS/${project}-${pkg_version}.spec
 fi
 
