@@ -2,7 +2,7 @@
 
 project='librb'
 out='www/downloads.html'
-remote="https://distfiles.kurwinet.pl/test/${project}"
+remote="https://distfiles.kurwinet.pl/${project}"
 gpg="https://distfiles.kurwinet.pl/bofc-signing.pub.gpg"
 asc="https://distfiles.kurwinet.pl/bofc-signing.pub.asc"
 
