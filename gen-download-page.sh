@@ -35,7 +35,8 @@ echo "&nbsp;&nbsp;&nbsp;&nbsp;gpg --recv-keys 63D0C3DB42AF3B4FCF6E7880E84A7E61C7
 echo "Then you can verify downloaded image with command<br><br>"
 echo "&nbsp;&nbsp;&nbsp;&nbsp;gpg --verify &lt;sig-file&gt; &lt;package-file&gt;"
 echo "</p><p>"
-echo "All files can also be downloaded from: <a href=\"${remote}/\">${remote}</a><br>"
+echo "All files (including md5, sha256 and sha512 for all files) can also"
+echo "be downloaded from: <a href=\"${remote}/\">${remote}</a><br>"
 echo "</p>"
 echo "<h1>git</h1>"
 echo "<p>"
@@ -54,13 +55,16 @@ versions="$(echo "${files}" | tr ' ' '\n' | rev | \
 
 for v in ${versions}
 do
-    printf "%-10s%s(%s)  %s(%s)  %s(%s)" "${v}" \
+    printf "%-10s%s(%s|%s)  %s(%s|%s)  %s(%s|%s)\n" "${v}" \
         "<a href=\"${remote}/${project}-${v}.tar.gz\">tar.gz</a>" \
         "<a href=\"${remote}/${project}-${v}.tar.gz.sig\">s</a>" \
+        "<a href=\"${remote}/${project}-${v}.tar.gz.sha1\">sha1</a>" \
         "<a href=\"${remote}/${project}-${v}.tar.bz2\">tar.bz2</a>" \
         "<a href=\"${remote}/${project}-${v}.tar.bz2.sig\">s</a>" \
+        "<a href=\"${remote}/${project}-${v}.tar.bz2.sha1\">sha1</a>" \
         "<a href=\"${remote}/${project}-${v}.tar.xz\">tar.xz</a>" \
-        "<a href=\"${remote}/${project}-${v}.tar.xz.sig\">s</a>"
+        "<a href=\"${remote}/${project}-${v}.tar.xz.sig\">s</a>" \
+        "<a href=\"${remote}/${project}-${v}.tar.xz.sha1\">sha1</a>"
 done
 
 echo "</pre>"
@@ -107,9 +111,10 @@ do
 
             debian)
                 ABI="$(echo "${v}" | cut -f1 -d.)"
-                printf "%-10s%s(%s)  %s(%s)  %s(%s)  %s(%s)  %s(%s)  %s(%s)\n" "${v}" \
+                printf "%-10s%s(%s|%s)  %s(%s)  %s(%s)  %s(%s)  %s(%s)  %s(%s)\n" "${v}" \
                     "<a href=\"${remote}/${d}/${a}/${project}${ABI}_${v}_${a}.deb\">deb</a>" \
                     "<a href=\"${remote}/${d}/${a}/${project}${ABI}_${v}_${a}.deb.sig\">s</a>" \
+                    "<a href=\"${remote}/${d}/${a}/${project}${ABI}_${v}_${a}.deb.sha1\">sha1</a>" \
                     "<a href=\"${remote}/${d}/${a}/${project}${ABI}-dbgsym_${v}_${a}.deb\">dbgsym</a>" \
                     "<a href=\"${remote}/${d}/${a}/${project}${ABI}-dbgsym_${v}_${a}.deb.sig\">s</a>" \
                     "<a href=\"${remote}/${d}/${a}/${project}-dev_${v}_${a}.deb\">dev</a>" \
@@ -124,9 +129,10 @@ do
 
             ubuntu)
                 ABI="$(echo "${v}" | cut -f1 -d.)"
-                printf "%-10s%s(%s)  %s(%s)  %s(%s)  %s(%s)  %s(%s)  %s(%s)\n" "${v}" \
+                printf "%-10s%s(%s|%s)  %s(%s)  %s(%s)  %s(%s)  %s(%s)  %s(%s)\n" "${v}" \
                     "<a href=\"${remote}/${d}/${a}/${project}${ABI}_${v}_${a}.deb\">deb</a>" \
                     "<a href=\"${remote}/${d}/${a}/${project}${ABI}_${v}_${a}.deb.sig\">s</a>" \
+                    "<a href=\"${remote}/${d}/${a}/${project}${ABI}_${v}_${a}.deb.sha1\">sha1</a>" \
                     "<a href=\"${remote}/${d}/${a}/${project}${ABI}-dbgsym_${v}_${a}.ddeb\">dbgsym</a>" \
                     "<a href=\"${remote}/${d}/${a}/${project}${ABI}-dbgsym_${v}_${a}.ddeb.sig\">s</a>" \
                     "<a href=\"${remote}/${d}/${a}/${project}-dev_${v}_${a}.deb\">dev</a>" \
@@ -140,9 +146,10 @@ do
                 ;;
 
             rhel|centos|opensuse|fedora)
-                printf "%-10s%s(%s)  %s(%s)  %s(%s)\n" "${v}" \
+                printf "%-10s%s(%s|%s)  %s(%s)  %s(%s)\n" "${v}" \
                     "<a href=\"${remote}/${d}/${a}/${project}-${v}-1.${a}.rpm\">rpm</a>" \
                     "<a href=\"${remote}/${d}/${a}/${project}-${v}-1.${a}.rpm.sig\">s</a>" \
+                    "<a href=\"${remote}/${d}/${a}/${project}-${v}-1.${a}.rpm.sha1\">sha1</a>" \
                     "<a href=\"${remote}/${d}/${a}/${project}-debuginfo-${v}-1.${a}.rpm\">dbginfo</a>" \
                     "<a href=\"${remote}/${d}/${a}/${project}-debuginfo-${v}-1.${a}.rpm.sig\">s</a>" \
                     "<a href=\"${remote}/${d}/${a}/${project}-devel-${v}-1.${a}.rpm\">devel</a>" \
@@ -150,9 +157,10 @@ do
                 ;;
 
             slackware)
-                printf "%-10s%s(%s)\n" "${v}" \
+                printf "%-10s%s(%s|%s)\n" "${v}" \
                     "<a href=\"${remote}/${d}/${a}/${project}-${v}.${a}-1.tgz\">tgz</a>" \
-                    "<a href=\"${remote}/${d}/${a}/${project}-${v}.${a}-1.tgz.sig\">s</a>"
+                    "<a href=\"${remote}/${d}/${a}/${project}-${v}.${a}-1.tgz.sig\">s</a>" \
+                    "<a href=\"${remote}/${d}/${a}/${project}-${v}.${a}-1.tgz.sha1\">sha1</a>"
                 ;;
             esac
         done
