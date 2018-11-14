@@ -158,9 +158,9 @@ do
 
             slackware)
                 printf "%-10s%s(%s|%s)\n" "${v}" \
-                    "<a href=\"${remote}/${d}/${a}/${project}-${v}.${a}-1.tgz\">tgz</a>" \
-                    "<a href=\"${remote}/${d}/${a}/${project}-${v}.${a}-1.tgz.sig\">s</a>" \
-                    "<a href=\"${remote}/${d}/${a}/${project}-${v}.${a}-1.tgz.sha1\">sha1</a>"
+                    "<a href=\"${remote}/${d}/${a}/${project}-${v}-${a}-1.tgz\">tgz</a>" \
+                    "<a href=\"${remote}/${d}/${a}/${project}-${v}-${a}-1.tgz.sig\">s</a>" \
+                    "<a href=\"${remote}/${d}/${a}/${project}-${v}-${a}-1.tgz.sha1\">sha1</a>"
                 ;;
             esac
         done
