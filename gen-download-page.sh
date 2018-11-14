@@ -169,6 +169,7 @@ do
 done
 
 exec 1>&6 6>&-
+failed=0
 
 for l in $(lynx -listonly -nonumbers -dump "${out}" | grep "https://distfiles")
 do
@@ -178,5 +179,10 @@ do
     if [ ${?} -eq 0 ]
     then
         echo "ok"
+        continue
     fi
+
+    failed=1
 done
+
+exit ${failed}
