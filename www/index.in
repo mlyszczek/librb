@@ -1,4 +1,4 @@
-in_title="librb.kurwinet.pl - ring buffer for c/c++"
+in_title="librb.bofc.pl - ring buffer for c/c++"
 in_description="librb is library that provides fast, easy to use ring buffer. It's interface is very similar to read/write interface from POSIX. It also provides optional thread awarness and thread safety for concurrent access."
 in_keywords="c, library, ring, buffer, thread, safety, pthread"
 in_author="Michał Łyszczek"

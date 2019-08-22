@@ -5,8 +5,8 @@ EAPI=6
 inherit autotools
 
 DESCRIPTION="ring buffer c library with posix-like read/write interface and thread awarness"
-HOMEPAGE="http://librb.kurwinet.pl"
-SRC_URI="http://distfiles.kurwinet.pl/${PN}/${P}.tar.gz"
+HOMEPAGE="http://librb.bofc.pl"
+SRC_URI="http://distfiles.bofc.pl/${PN}/${P}.tar.gz"
 
 LICENSE="BSD-2"
 SLOT="0"
