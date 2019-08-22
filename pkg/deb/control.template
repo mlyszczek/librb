@@ -4,9 +4,9 @@ Priority: optional
 Maintainer: Michał Łyszczek <michal.lyszczek@bofc.pl>
 Build-Depends: debhelper (>=10), autotools-dev, dh-autoreconf
 Standards-Version: 3.9.8
-Vcs-Git: https://git.kurwinet.pl/librb
-Vcs-browser: https://git.kurwinet.pl/librb
-Homepage: https://librb.kurwinet.pl
+Vcs-Git: https://git.bofc.pl/librb
+Vcs-browser: https://git.bofc.pl/librb
+Homepage: https://librb.bofc.pl
 
 Package: librb${ABI_VERSION}
 Section: libs
