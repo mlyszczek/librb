@@ -1,0 +1,71 @@
+/* ==========================================================================
+    Licensed under BSD 2clause license. See LICENSE file for more information
+    Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
+   ========================================================================== */
+#ifndef LIBRB_H
+#define LIBRB_H 1
+
+#include <stddef.h>
+
+#define ENABLE_THREADS @ENABLE_THREADS@
+
+#if ENABLE_THREADS
+#   include <fcntl.h>
+#   include <semaphore.h>
+#endif
+
+#ifndef MSG_PEEK
+#define MSG_PEEK 2
+#endif
+
+#ifndef O_NONBLOCK
+#define O_NONBLOCK 0x800
+#endif
+
+#ifndef MSG_DONTWAIT
+#define MSG_DONTWAIT 0x40
+#endif
+
+#define O_MULTITHREAD  (1ul << 16)
+#define RB_ROUND_COUNT (1ul << 17)
+#define RB_GROWABLE    (1ul << 18)
+
+struct rb
+{
+	size_t           head;        /* pointer to buffer's head */
+	size_t           tail;        /* pointer to buffer's tail */
+	size_t           count;       /* maximum number of elements in buffer */
+	size_t           object_size; /* size of a single object in buffer */
+	unsigned long    flags;       /* flags used with buffer */
+	unsigned char   *buffer;      /* pointer to ring buffer in memory */
+
+#if ENABLE_THREADS
+	pthread_mutex_t  lock;        /* mutex for concurrent access */
+	pthread_mutex_t  rlock;       /* global lock for reading from rb */
+	pthread_mutex_t  wlock;       /* global lock for writing to rb */
+	pthread_cond_t   wait_data;   /* ca, will block if buffer is empty */
+	pthread_cond_t   wait_room;   /* ca, will block if buffer is full */
+	pthread_t        stop_thread; /* thread to force thread to exit send/recv */
+	int              stopped_all; /* when set no threads are in send/recv */
+	int              force_exit;  /* if set, library will stop all operations */
+#endif
+};
+
+struct rb *rb_new(size_t count, size_t object_size, unsigned long flags);
+int rb_init(struct rb *rb, void *buf, size_t count, size_t object_size,
+	unsigned long flags);
+long rb_read(struct rb *rb, void *buffer, size_t count);
+long rb_recv(struct rb *rb, void *buffer, size_t count, unsigned long flags);
+long rb_write(struct rb *rb, const void *buffer, size_t count);
+long rb_send(struct rb *rb, const void *buffer, size_t count,
+	unsigned long flags);
+
+int rb_clear(struct rb *rb, int clear);
+int rb_destroy(struct rb *rb);
+int rb_cleanup(struct rb *rb);
+long rb_discard(struct rb *rb, size_t count);
+long rb_count(struct rb *rb);
+long rb_space(struct rb *rb);
+int rb_stop(struct rb *rb);
+
+#endif
