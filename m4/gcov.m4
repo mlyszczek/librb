@@ -66,14 +66,6 @@ AC_DEFUN([AC_TDD_GCOV],
     AC_MSG_ERROR([$lcov_msg])
   fi
 
-  case $glib_cv_lcov_version in
-    ""|invalid[)]
-      lcov_msg="You must have one of the following versions of lcov: $lcov_version_list (found: $lcov_version)."
-      AC_MSG_ERROR([$lcov_msg])
-      LCOV="exit 0;"
-      ;;
-  esac
-
   if test -z "$GENHTML"; then
     AC_MSG_ERROR([Could not find genhtml from the lcov package])
   fi

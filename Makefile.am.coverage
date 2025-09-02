@@ -9,14 +9,14 @@ clean-gcda:
 	-find -name '*.gcda' -print | xargs -r rm
 	-find -name '*.gcno' -print | xargs -r rm
 
-coverage: clean-gcda
+coverage: clean-gcda clean
 	-$(MAKE) $(AM_MAKEFLAGS) -k check
 	$(MAKE) $(AM_MAKEFLAGS) generate-coverage-html
 
 generate-coverage-html:
 	@echo Collecting coverage data
-	$(LCOV) --directory $(top_builddir) --capture --output-file coverage.info --no-checksum --compat-libtool
-	LANG=C $(GENHTML) --prefix $(top_builddir) --output-directory coveragereport --title "Code Coverage" --legend --show-details coverage.info
+	lcov --directory $(top_builddir) --capture --output-file coverage.info --no-checksum --compat-libtool
+	LANG=C genhtml --prefix $(top_builddir) --output-directory coveragereport --title "Code Coverage" --legend --show-details coverage.info
 
 clean-coverage-html: clean-gcda
 	-$(LCOV) --directory $(top_builddir) -z
