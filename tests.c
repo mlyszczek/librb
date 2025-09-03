@@ -171,7 +171,7 @@ static void multi_producers_consumers(void)
 	cons = malloc(t_num_consumers * sizeof(*cons));
 	prod = malloc(t_num_producers * sizeof(*prod));
 
-	tdata.rb = rb_new(8, sizeof(unsigned int), O_MULTITHREAD);
+	tdata.rb = rb_new(8, sizeof(unsigned int), rb_multithread);
 	tdata.fd = -1;
 	tdata.objsize = sizeof(unsigned int);
 
@@ -193,7 +193,7 @@ static void multi_producers_consumers(void)
 
 		/* while waiting, we randomly peek into rb, and to make sure,
 		 * peeking won't make a difference */
-		rb_recv(tdata.rb, buf, rand() % 16, MSG_PEEK);
+		rb_recv(tdata.rb, buf, rand() % 16, rb_peek);
 	}
 
 	rb_stop(tdata.rb);
@@ -243,7 +243,7 @@ static void multi_thread(void)
 		recv_buf[i] = 0;
 	}
 
-	rb = rb_new(t_rblen, t_objsize, O_MULTITHREAD);
+	rb = rb_new(t_rblen, t_objsize, rb_multithread);
 
 	proddata.data = send_buf;
 	proddata.len = t_writelen;
@@ -285,7 +285,7 @@ static void multithread_eagain(void)
 	char d[6];
 	struct rb *rb;
 
-	rb = rb_new(4, 1, O_MULTITHREAD | O_NONBLOCK);
+	rb = rb_new(4, 1, rb_multithread | rb_nonblock);
 	rb_write(rb, s, sizeof(s));
 	mt_ferr(rb_write(rb, s, sizeof(s)), EAGAIN);
 	rb_read(rb, d, sizeof(d));
@@ -298,7 +298,7 @@ static void multithread_flag(void)
 {
 	struct rb *rb;
 
-	rb = rb_new(4, 1, O_MULTITHREAD);
+	rb = rb_new(4, 1, rb_multithread);
 
 #if ENABLE_THREADS
 	mt_assert(rb != NULL);
@@ -318,7 +318,7 @@ static void nonblocking_flag(void)
 	int r;
 
 #if ENABLE_THREADS
-	rb = rb_new(4, 1, O_NONBLOCK | O_MULTITHREAD);
+	rb = rb_new(4, 1, rb_nonblock | rb_multithread);
 	r = rb_write(rb, s, sizeof(s));
 	mt_fail(r == 3);
 	r = rb_read(rb, d, sizeof(d));
@@ -367,13 +367,13 @@ static void peeking(void)
 	mt_assert(rb = rb_new(8, sizeof(int), 0));
 
 	rb_write(rb, d, 4);
-	rb_recv(rb, v, 2, MSG_PEEK);
+	rb_recv(rb, v, 2, rb_peek);
 	mt_fail(v[0] == 0);
 	mt_fail(v[1] == 1);
 	mt_fail(v[2] == 0);
 	mt_fail(v[3] == 0);
 	memset(v, 0, sizeof(v));
-	rb_recv(rb, v, 6, MSG_PEEK);
+	rb_recv(rb, v, 6, rb_peek);
 	mt_fail(v[0] == 0);
 	mt_fail(v[1] == 1);
 	mt_fail(v[2] == 2);
@@ -386,7 +386,7 @@ static void peeking(void)
 	memset(v, 0, sizeof(v));
 	mt_fail(rb_discard(rb, 7) == 4);
 	rb_write(rb, d, 6);
-	rb_recv(rb, v, 6, MSG_PEEK);
+	rb_recv(rb, v, 6, rb_peek);
 	mt_fail(v[0] == 0);
 	mt_fail(v[1] == 1);
 	mt_fail(v[2] == 2);
@@ -394,7 +394,7 @@ static void peeking(void)
 	mt_fail(v[4] == 4);
 	mt_fail(v[5] == 5);
 	memset(v, 0, sizeof(v));
-	rb_recv(rb, v, 6, MSG_PEEK);
+	rb_recv(rb, v, 6, rb_peek);
 	mt_fail(v[0] == 0);
 	mt_fail(v[1] == 1);
 	mt_fail(v[2] == 2);
@@ -485,7 +485,7 @@ static void discard(void)
 		int flags;
 
 #if ENABLE_THREADS
-		flags = i ? O_MULTITHREAD : 0;
+		flags = i ? rb_multithread : 0;
 #else
 		/* yup, if ENABLE_THREADS is 0, same code will be executed twice...
 		 * it's not a bug, it's a feature! MORE TESTS NEVER HURT! */
@@ -604,8 +604,8 @@ static void einval_on_init(void)
 	struct rb rb;
 	char buf;
 
-	mt_ferr(rb_init(&rb, &buf, 8, 1, RB_GROWABLE), EINVAL);
-	mt_ferr(rb_init(&rb, &buf, 8, 1, RB_ROUND_COUNT), EINVAL);
+	mt_ferr(rb_init(&rb, &buf, 8, 1, rb_growable), EINVAL);
+	mt_ferr(rb_init(&rb, &buf, 8, 1, rb_round_count), EINVAL);
 	mt_ferr(rb_init(NULL, &buf, 8, 1, 0), EINVAL);
 	mt_ferr(rb_init(&rb, NULL, 8, 1, 0), EINVAL);
 	mt_ferr(rb_init(&rb, &buf, 7, 1, 0), EINVAL);
@@ -672,7 +672,7 @@ static void stack_init(void)
 	mt_fail(m.b == 7);
 
 #if ENABLE_THREADS
-	mt_assert(rb_init(&rb2, buf, 4, sizeof(m), O_MULTITHREAD) == 0);
+	mt_assert(rb_init(&rb2, buf, 4, sizeof(m), rb_multithread) == 0);
 	m.a = 1;
 	m.b = 2;
 	rb_write(rb, &m, 1);
@@ -700,7 +700,7 @@ static void grow(void)
 {
 	const char *buf = "123456";
 	char rdbuf[8] = { 0 };
-	struct rb *rb = rb_new(4, 1, RB_GROWABLE);
+	struct rb *rb = rb_new(4, 1, rb_growable);
 	mt_assert(rb);
 
 	mt_fail(rb_write(rb, "123", 3));
@@ -714,7 +714,7 @@ static void grow(void)
 static void grow_warped(void)
 {
 	char rdbuf[16] = { 0 };
-	struct rb *rb = rb_new(8, 1, RB_GROWABLE);
+	struct rb *rb = rb_new(8, 1, rb_growable);
 	mt_assert(rb);
 
 	mt_fail(rb_write(rb, "1234567", 7));
@@ -730,7 +730,7 @@ static void grow_warped(void)
 static void grow_multiple_times(void)
 {
 	char rdbuf[32] = { 0 };
-	struct rb *rb = rb_new(4, 1, RB_GROWABLE);
+	struct rb *rb = rb_new(4, 1, rb_growable);
 	mt_fail(rb_write(rb, "123", 3));
 	mt_fail(rb_write(rb, "12345678901234567890", 20));
 	mt_fail(rb_read(rb, rdbuf, 32));
@@ -743,7 +743,7 @@ static void grow_multi_warped(void)
 {
 	char rdbuf[256] = { 0 };
 	char ascii[128];
-	struct rb *rb = rb_new(8, 1, RB_GROWABLE);
+	struct rb *rb = rb_new(8, 1, rb_growable);
 	mt_assert(rb);
 
 	for (int i = 0; i <= 126; i++)
@@ -767,10 +767,10 @@ static void round_count(void)
 {
 	struct rb *rb;
 
-	rb = rb_new(6, 1, RB_ROUND_COUNT);
+	rb = rb_new(6, 1, rb_round_count);
 	mt_fail(rb->count == 8);
 	rb_destroy(rb);
-	rb = rb_new(201, 1, RB_ROUND_COUNT);
+	rb = rb_new(201, 1, rb_round_count);
 	mt_fail(rb->count == 256);
 	rb_destroy(rb);
 }

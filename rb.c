@@ -62,8 +62,8 @@
  *               ░▀▀░░▀▀▀░▀▀▀░▀▀▀░▀░▀░▀░▀░▀░▀░░▀░░▀▀▀░▀▀▀░▀░▀░▀▀▀
  * ========================================================================== */
 #define return_errno(R, E) do { errno = E; return R; } while (0)
-#define RB_IS_GROWABLE(flags) (flags & RB_GROWABLE)
-#define RB_IS_ROUNDABLE(flags) (flags & RB_ROUND_COUNT)
+#define RB_IS_GROWABLE(flags) (flags & rb_growable)
+#define RB_IS_ROUNDABLE(flags) (flags & rb_round_count)
 
 /* ==========================================================================
  *                     ░█▀▀░█░█░█▀█░█▀▀░▀█▀░▀█▀░█▀█░█▀█░█▀▀
@@ -205,7 +205,7 @@ static int rb_grow(struct rb *rb)
  * @return 0 on success, otherwise -1 is returned
  * ========================================================================== */
 static int rb_init_p(struct rb *rb, void *buf, size_t count,
-		size_t object_size, unsigned long flags)
+		size_t object_size, enum rb_flags flags)
 {
 #if ENABLE_THREADS
 	int e; /* errno value from pthread function */
@@ -228,14 +228,14 @@ static int rb_init_p(struct rb *rb, void *buf, size_t count,
 	 * multi threaded operations are not allowed when library is compiled
 	 * without threads
 	 */
-	VALID(ENOSYS, (flags & O_MULTITHREAD) == 0);
+	VALID(ENOSYS, (flags & rb_multithread) == 0);
 
 	return 0;
 #else
-	if ((flags & O_MULTITHREAD) == 0) {
-		/* when working in *non* multi-threaded mode, force O_NONBLOCK flag,
+	if ((flags & rb_multithread) == 0) {
+		/* when working in *non* multi-threaded mode, force rb_nonblock flag,
 		 * and return, as we don't need to init pthread elements. */
-		rb->flags |= O_NONBLOCK;
+		rb->flags |= rb_nonblock;
 		return 0;
 	}
 
@@ -281,11 +281,11 @@ error_lock:
  *
  * @return 0 on success, otherwise -1 is returned
  * 
- * @exception EINVAL RB_ROUND_COUNT flag passed
- * @exception EINVAL RB_GROWABLE flag passed
+ * @exception EINVAL rb_round_count flag passed
+ * @exception EINVAL rb_growable flag passed
  * ========================================================================== */
 int rb_init(struct rb *rb, void *buf, size_t count, size_t object_size,
-	unsigned long flags)
+	enum rb_flags flags)
 {
 	VALID(EINVAL, !RB_IS_ROUNDABLE(flags));
 	VALID(EINVAL, !RB_IS_GROWABLE(flags));
@@ -307,7 +307,7 @@ int rb_init(struct rb *rb, void *buf, size_t count, size_t object_size,
  *
  * @return 0 on success, otherwise -1 is returned
  * ========================================================================== */
-struct rb *rb_new(size_t count, size_t object_size, unsigned long flags)
+struct rb *rb_new(size_t count, size_t object_size, enum rb_flags flags)
 {
 	struct rb *rb;  /* pointer to newly created buffer */
 	void      *buf; /* buffer to hold data in ring buffer */
@@ -318,7 +318,7 @@ struct rb *rb_new(size_t count, size_t object_size, unsigned long flags)
 	buf = NULL;
 	e = -1;
 
-	if (flags & RB_ROUND_COUNT)
+	if (flags & rb_round_count)
 		count = rb_nearest_power_if_two(count);
 
 	if ((rb = malloc(sizeof(*rb))) == NULL)
@@ -347,7 +347,7 @@ error:
  * read whatever is in the ring buffer and return with only elements read.
  *
  * Function also accepts flags.
- * - MSG_PEEK: do normal read operation, but do not remove read data from
+ * - rb_peek: do normal read operation, but do not remove read data from
  *   ring buffer, calling recv() with this flag multiple times wille yield
  *   same results (provided that no new data is copied to ring buffer)
  *
@@ -360,7 +360,7 @@ error:
  * @return -1 when no data could be copied to #buffer (rb is empty)
  * @exception EAGAIN ring buffer is empty, nothing copied to #buffer
  * ========================================================================== */
-static long rb_recvs(struct rb *rb, void *buffer, size_t count, unsigned long flags)
+static long rb_recvs(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 {
 	size_t          rbcount;  /* number of elements in rb */
 	size_t          cnte;     /* number of elements in rb until overlap */
@@ -395,11 +395,11 @@ static long rb_recvs(struct rb *rb, void *buffer, size_t count, unsigned long fl
 		/* Memory overlaps, copy data in two turns */
 		memcpy(buf, rb->buffer + rb->tail * objsize, objsize * cnte);
 		memcpy(buf + cnte * objsize, rb->buffer, (count - cnte) * objsize);
-		rb->tail = flags & MSG_PEEK ? rb->tail : count - cnte;
+		rb->tail = flags & rb_peek ? rb->tail : count - cnte;
 	} else {
 		/* Memory doesn't overlap, good we can do copying on one go */
 		memcpy(buf, rb->buffer + rb->tail * objsize, count * objsize);
-		rb->tail += flags & MSG_PEEK ? 0 : count;
+		rb->tail += flags & rb_peek ? 0 : count;
 		rb->tail &= rb->count - 1;
 	}
 
@@ -412,7 +412,7 @@ static long rb_recvs(struct rb *rb, void *buffer, size_t count, unsigned long fl
  * any data is stored into #buffer, unless non blocking #flag is set to 1.
  * When #rb is exhausted and there is still data to read, caller thread
  * will be put to sleep and will be waked up as soon as there is data in
- * #rb. If #rb is non blocking or #flag is O_NONBLOCK when there is no
+ * #rb. If #rb is non blocking or #flag is rb_nonblock when there is no
  * data in buffer, function will return -1 and EAGAIN
  *
  *
@@ -428,7 +428,7 @@ static long rb_recvs(struct rb *rb, void *buffer, size_t count, unsigned long fl
  *            buffer
  * ========================================================================== */
 static long rb_recvt(struct rb *rb, void *buffer, size_t count,
-	unsigned long flags)
+	enum rb_flags flags)
 {
 	size_t          r;       /* number of elements read */
 	unsigned char   *buf;    /* buffer treated as unsigned char type */
@@ -463,7 +463,7 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 			/* buffer is empty and no data can be read, we wait for any
 			 * data or exit if #rb is non blocking. If we managed to read
 			 * some data previously, let's bail with what we have. */
-			if (r || rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT) {
+			if (r || rb->flags & rb_nonblock || flags & rb_dontwait) {
 				pthread_mutex_unlock(&rb->lock);
 				trace(("i/rb unlock"));
 				pthread_mutex_unlock(&rb->rlock);
@@ -568,7 +568,7 @@ long rb_read(struct rb *rb, void *buffer, size_t count)
  * @exception EAGAIN ring buffer is empty, nothing copied to #buffer
  * @exception EINVAL invalid parameter passed
  * ========================================================================== */
-long rb_recv(struct rb *rb, void *buffer, size_t count, unsigned long flags)
+long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 {
 	VALID(EINVAL, rb);
 	VALID(EINVAL, buffer);
@@ -583,7 +583,7 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, unsigned long flags)
 		count = LONG_MAX;
 
 #if ENABLE_THREADS
-	if ((rb->flags & O_MULTITHREAD) == 0)
+	if ((rb->flags & rb_multithread) == 0)
 		return rb_recvs(rb, buffer, count, flags);
 
 	trace(("i/rb lock"));
@@ -597,7 +597,7 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, unsigned long flags)
 	pthread_mutex_unlock(&rb->lock);
 	trace(("i/rb unlock"));
 
-	if (flags & MSG_PEEK) {
+	if (flags & rb_peek) {
 		/* when called is just peeking, we can simply call function for
 		 * single thread, as it will not modify data, and will not cause
 		 * deadlock */
@@ -638,7 +638,7 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, unsigned long flags)
  *            requested
  * ========================================================================== */
 static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
-	unsigned long flags)
+	enum rb_flags flags)
 {
 	size_t                w;   /* number of elements written to rb */
 	const unsigned char  *buf; /* buffer treated as unsigned char type */
@@ -674,7 +674,7 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 
 			/* buffer is full and no new data can be pushed, we wait  for
 			 * room or exit if 'rb' is non blocking */
-			if (w || rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT) {
+			if (w || rb->flags & rb_nonblock || flags & rb_dontwait) {
 				pthread_mutex_unlock(&rb->lock);
 				trace(("i/rb unlock"));
 				pthread_mutex_unlock(&rb->wlock);
@@ -765,7 +765,7 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
  * @return On error -1 is returned
  * @exception EAGAIN ring buffer is full, cannot copy anything to it
  * ========================================================================== */
-long rb_sends(struct rb *rb, const void *buffer, size_t count, unsigned long flags)
+long rb_sends(struct rb *rb, const void *buffer, size_t count, enum rb_flags flags)
 {
 	size_t                rbspace;  /* space left in rb */
 	size_t                spce;     /* space left in rb until overlap */
@@ -832,8 +832,7 @@ long rb_sends(struct rb *rb, const void *buffer, size_t count, unsigned long fla
  *
  * @exception EAGAIN ring buffer is full, cannot copy anything to it
  * ========================================================================== */
-long rb_send(struct rb *rb, const void *buffer, size_t count,
-	unsigned long  flags)
+long rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flags)
 {
 	VALID(EINVAL, rb);
 	VALID(EINVAL, buffer);
@@ -845,7 +844,7 @@ long rb_send(struct rb *rb, const void *buffer, size_t count,
 		count = LONG_MAX;
 
 #if ENABLE_THREADS
-	if ((rb->flags & O_MULTITHREAD) == 0)
+	if ((rb->flags & rb_multithread) == 0)
 		return rb_sends(rb, buffer, count, flags);
 
 	trace(("i/rb lock"));
@@ -908,7 +907,7 @@ int rb_clear(struct rb *rb, int clear)
 	VALID(EINVAL, rb->buffer);
 
 #if ENABLE_THREADS
-	if ((rb->flags & O_NONBLOCK) == 0) {
+	if ((rb->flags & rb_nonblock) == 0) {
 		trace(("i/rb lock"));
 		pthread_mutex_lock(&rb->lock);
 	}
@@ -921,7 +920,7 @@ int rb_clear(struct rb *rb, int clear)
 	rb->tail = 0;
 
 #if ENABLE_THREADS
-	if ((rb->flags & O_NONBLOCK) == 0) {
+	if ((rb->flags & rb_nonblock) == 0) {
 		pthread_mutex_unlock(&rb->lock);
 		trace(("i/rb unlock"));
 	}
@@ -950,7 +949,7 @@ int rb_stop(struct rb *rb)
 	VALID(EINVAL, rb);
 
 #if ENABLE_THREADS
-	VALID(EINVAL, rb->flags & O_MULTITHREAD);
+	VALID(EINVAL, rb->flags & rb_multithread);
 
 	trace(("i/rb lock"));
 	pthread_mutex_lock(&rb->lock);
@@ -984,7 +983,7 @@ int rb_stop(struct rb *rb)
 int rb_cleanup(struct rb *rb)
 {
 #if ENABLE_THREADS
-	if ((rb->flags & O_MULTITHREAD) == 0)
+	if ((rb->flags & rb_multithread) == 0)
 		return 0;
 
 	pthread_cond_destroy(&rb->wait_data);
