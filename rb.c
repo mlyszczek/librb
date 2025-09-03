@@ -22,14 +22,12 @@
 #   include <syscall.h>
 #   include <unistd.h>
 
-#   define trace(x) do                                                         \
-    {                                                                          \
+#   define trace(x) do {                                                       \
         printf("[%s:%d:%s():%ld]" , __FILE__, __LINE__, __func__,              \
             syscall(SYS_gettid));                                              \
         printf x ;                                                             \
         printf("\n");                                                          \
-    }                                                                          \
-    while (0)
+    } while (0)
 #else
 #   define trace(x)
 #endif
@@ -62,6 +60,8 @@
  *               ░▀▀░░▀▀▀░▀▀▀░▀▀▀░▀░▀░▀░▀░▀░▀░░▀░░▀▀▀░▀▀▀░▀░▀░▀▀▀
  * ========================================================================== */
 #define return_errno(R, E) do { errno = E; return R; } while (0)
+#define lock(L) do { trace(("i/lock " #L)); pthread_mutex_lock(&L); } while (0)
+#define unlock(L) do { pthread_mutex_unlock(&L); trace(("i/unlock " #L)); } while (0)
 #define RB_IS_GROWABLE(flags) (flags & rb_growable)
 #define RB_IS_ROUNDABLE(flags) (flags & rb_round_count)
 
@@ -214,7 +214,7 @@ static int rb_init_p(struct rb *rb, void *buf, size_t count,
 	VALID(EINVAL, buf);
 	VALID(EINVAL, rb_is_power_of_two(count));
 
-	trace(("count: %zu, objsize: %zu, flags: %lu", count, object_size, flags));
+	trace(("count: %zu, objsize: %zu, flags: %u", count, object_size, flags));
 
 	rb->buffer = buf;
 	rb->head = 0;
@@ -444,17 +444,15 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 	 * reads more data, and now T1 read data that is not continuous. Very
 	 * bad when reading full packets */
 
-	trace(("i/read lock"));
-	pthread_mutex_lock(&rb->rlock);
-	trace(("i/count: %zu, flags: %lu", count, flags));
+	lock(rb->rlock);
+	trace(("i/count: %zu, flags: %u", count, flags));
 	while (count) {
 		size_t count_to_end;
 		size_t count_to_read;
 		size_t bytes_to_read;
 		/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
-		trace(("i/rb lock"));
-		pthread_mutex_lock(&rb->lock);
+		lock(rb->lock);
 
 		while (rb_count(rb) == 0 && rb->force_exit == 0) {
 			struct timespec ts;  /* timeout for pthread_cond_timedwait */
@@ -464,10 +462,8 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 			 * data or exit if #rb is non blocking. If we managed to read
 			 * some data previously, let's bail with what we have. */
 			if (r || rb->flags & rb_nonblock || flags & rb_dontwait) {
-				pthread_mutex_unlock(&rb->lock);
-				trace(("i/rb unlock"));
-				pthread_mutex_unlock(&rb->rlock);
-				trace(("read unlock"));
+				unlock(rb->lock);
+				unlock(rb->rlock);
 
 				if (r == 0) {
 					/* set errno only when we did not read any bytes from rb
@@ -499,10 +495,8 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 
 		if (rb->force_exit) {
 			/* ring buffer is going down operations on buffer are not allowed */
-			pthread_mutex_unlock(&rb->lock);
-			trace(("i/rb unlock"));
-			pthread_mutex_unlock(&rb->rlock);
-			trace(("read unlock"));
+			unlock(rb->lock);
+			unlock(rb->rlock);
 			trace(("i/force exit"));
 			errno = ECANCELED;
 			return -1;
@@ -523,12 +517,10 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 
 		/* Signal any threads that waits for space to put data in buffer */
 		pthread_cond_signal(&rb->wait_room);
-		pthread_mutex_unlock(&rb->lock);
-		trace(("i/rb unlock"));
+		unlock(rb->lock);
 	}
 
-	pthread_mutex_unlock(&rb->rlock);
-	trace(("read unlock"));
+	unlock(rb->rlock);
 	trace(("i/ret %zu", r));
 	return r;
 }
@@ -586,26 +578,21 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 	if ((rb->flags & rb_multithread) == 0)
 		return rb_recvs(rb, buffer, count, flags);
 
-	trace(("i/rb lock"));
-	pthread_mutex_lock(&rb->lock);
+	lock(rb->lock);
 	if (rb->force_exit) {
-		pthread_mutex_unlock(&rb->lock);
-		trace(("i/rb unlock"));
+		unlock(rb->lock);
 		errno = ECANCELED;
 		return -1;
 	}
-	pthread_mutex_unlock(&rb->lock);
-	trace(("i/rb unlock"));
+	unlock(rb->lock);
 
 	if (flags & rb_peek) {
 		/* when called is just peeking, we can simply call function for
 		 * single thread, as it will not modify data, and will not cause
 		 * deadlock */
-		trace(("i/rb lock"));
-		pthread_mutex_lock(&rb->lock);
+		lock(rb->lock);
 		count = rb_recvs(rb, buffer, count, flags);
-		pthread_mutex_unlock(&rb->lock);
-		trace(("i/rb unlock"));
+		unlock(rb->lock);
 		return count;
 	}
 
@@ -646,9 +633,8 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 
 	w = 0;
 	buf = buffer;
-	trace(("i/fd: %d, count: %zu, flags: %lu", fd, count, flags));
-	trace(("i/write lock"));
-	pthread_mutex_lock(&rb->wlock);
+	trace(("i/count: %zu, flags: %u", count, flags));
+	lock(rb->wlock);
 
 	while (count) {
 		size_t  count_to_end;
@@ -656,8 +642,7 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 		size_t  bytes_to_write;
 		/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
-		trace(("i/rb lock"));
-		pthread_mutex_lock(&rb->lock);
+		lock(rb->lock);
 
 		while (rb_space(rb) == 0 && rb->force_exit == 0) {
 			struct timespec ts;  /* timeout for pthread_cond_timedwait */
@@ -665,8 +650,7 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 
 			if (RB_IS_GROWABLE(rb->flags)) {
 				if (rb_grow(rb)) {
-					pthread_mutex_unlock(&rb->lock);
-					trace(("i/rb unlock"));
+					unlock(rb->lock);
 					return_errno(-1, ENOMEM);
 				} else
 					continue;
@@ -675,10 +659,8 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 			/* buffer is full and no new data can be pushed, we wait  for
 			 * room or exit if 'rb' is non blocking */
 			if (w || rb->flags & rb_nonblock || flags & rb_dontwait) {
-				pthread_mutex_unlock(&rb->lock);
-				trace(("i/rb unlock"));
-				pthread_mutex_unlock(&rb->wlock);
-				trace(("i/write unlock"));
+				unlock(rb->lock);
+				unlock(rb->wlock);
 
 				if (w == 0) {
 					/* set errno only when we did not read any bytes from rb
@@ -711,10 +693,8 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 
 		if (rb->force_exit == 1) {
 			/* ring buffer is going down operations on buffer are not allowed */
-			pthread_mutex_unlock(&rb->lock);
-			trace(("i/rb unlock"));
-			pthread_mutex_unlock(&rb->wlock);
-			trace(("i/write unlock"));
+			unlock(rb->lock);
+			unlock(rb->wlock);
 			trace(("i/force exit"));
 			errno = ECANCELED;
 			return -1;
@@ -738,12 +718,10 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 
 		/* Signal any threads that waits for data to read */
 		pthread_cond_signal(&rb->wait_data);
-		pthread_mutex_unlock(&rb->lock);
-		trace(("i/rb unlock"));
+		unlock(rb->lock);
 	}
 
-	pthread_mutex_unlock(&rb->wlock);
-	trace(("i/write unlock"));
+	unlock(rb->wlock);
 	trace(("i/ret %zu", w));
 	return w;
 }
@@ -847,16 +825,13 @@ long rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flag
 	if ((rb->flags & rb_multithread) == 0)
 		return rb_sends(rb, buffer, count, flags);
 
-	trace(("i/rb lock"));
-	pthread_mutex_lock(&rb->lock);
+	lock(rb->lock);
 	if (rb->force_exit) {
-		pthread_mutex_unlock(&rb->lock);
-		trace(("i/rb unlock"));
+		unlock(rb->lock);
 		errno = ECANCELED;
 		return -1;
 	}
-	pthread_mutex_unlock(&rb->lock);
-	trace(("i/rb unlock"));
+	unlock(rb->lock);
 
 	return rb_sendt(rb, buffer, count, flags);
 #else
@@ -907,10 +882,8 @@ int rb_clear(struct rb *rb, int clear)
 	VALID(EINVAL, rb->buffer);
 
 #if ENABLE_THREADS
-	if ((rb->flags & rb_nonblock) == 0) {
-		trace(("i/rb lock"));
-		pthread_mutex_lock(&rb->lock);
-	}
+	if ((rb->flags & rb_nonblock) == 0)
+		lock(rb->lock);
 #endif
 
 	if (clear)
@@ -920,10 +893,8 @@ int rb_clear(struct rb *rb, int clear)
 	rb->tail = 0;
 
 #if ENABLE_THREADS
-	if ((rb->flags & rb_nonblock) == 0) {
-		pthread_mutex_unlock(&rb->lock);
-		trace(("i/rb unlock"));
-	}
+	if ((rb->flags & rb_nonblock) == 0)
+		unlock(rb->lock);
 #endif
 
 	return 0;
@@ -951,8 +922,7 @@ int rb_stop(struct rb *rb)
 #if ENABLE_THREADS
 	VALID(EINVAL, rb->flags & rb_multithread);
 
-	trace(("i/rb lock"));
-	pthread_mutex_lock(&rb->lock);
+	lock(rb->lock);
 	rb->force_exit = 1;
 
 	/* signal all conditional variables, #force_exit is set, so all
@@ -960,8 +930,7 @@ int rb_stop(struct rb *rb)
 	pthread_cond_broadcast(&rb->wait_data);
 	pthread_cond_broadcast(&rb->wait_room);
 
-	pthread_mutex_unlock(&rb->lock);
-	trace(("i/rb unlock"));
+	unlock(rb->lock);
 
 	return 0;
 #else
