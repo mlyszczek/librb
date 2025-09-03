@@ -26,8 +26,24 @@
 #define MSG_DONTWAIT 0x40
 #endif
 
+/* If ENABLE_THREADS is defined, it will put ring buffer into multi-threaded
+ * mode. This will allow you to call all rb_read/write functions with
+ * multiple threads. These calls can also be optionally made into blocking
+ * calls, so you can wait for data in rb_read() without polling */
 #define O_MULTITHREAD  (1ul << 16)
+/* If this flag is passed, count will be rounded up to the nearest
+ * power of 2, this may eat up a lot of unused memory if enabled.
+ *
+ * This only makes sense to use when you are creating ring buffer with
+ * #rb_new() function */
 #define RB_ROUND_COUNT (1ul << 17)
+/* If ring buffer is created with this flag, and there is not enough
+ * space on the buffer, librb will grow the #buffer by factor of 2.
+ * This will result in #rb_write() to never fail due to lack of space
+ * in ring buffer - unless realloc() fails to allocate more memory.
+ *
+ * This only makes sense to use when you are creating ring buffer with
+ * #rb_new() function */
 #define RB_GROWABLE    (1ul << 18)
 
 struct rb

@@ -62,6 +62,8 @@
  *               ░▀▀░░▀▀▀░▀▀▀░▀▀▀░▀░▀░▀░▀░▀░▀░░▀░░▀▀▀░▀▀▀░▀░▀░▀▀▀
  * ========================================================================== */
 #define return_errno(R, E) do { errno = E; return R; } while (0)
+#define RB_IS_GROWABLE(flags) (flags & RB_GROWABLE)
+#define RB_IS_ROUNDABLE(flags) (flags & RB_ROUND_COUNT)
 
 /* ==========================================================================
  *                     ░█▀▀░█░█░█▀█░█▀▀░▀█▀░▀█▀░█▀█░█▀█░█▀▀
@@ -110,6 +112,24 @@ static size_t rb_space_end(const struct rb *rb)
 	return n <= end ? n : end + 1;
 }
 
+/** =========================================================================
+ * Converts #v number into nearest power of two that is larger than passed #v
+ *
+ * @param v value to convert to nearest power of 2
+ *
+ * @return #v converted to nearest power of 2
+ * ========================================================================== */
+static unsigned long rb_nearest_power_if_two(unsigned long v)
+{
+	v--;
+	v |= v >> 1;
+	v |= v >> 2;
+	v |= v >> 4;
+	v |= v >> 8;
+	v |= v >> 16;
+	v++;
+	return v;
+}
 
 /** =========================================================================
  * Checks if number x is exactly power of two number (ie 1, 2, 4, 8, 16)
@@ -124,9 +144,57 @@ static int rb_is_power_of_two(size_t x)
 }
 
 /** =========================================================================
- * Initializes new ring buffer object like rb_new but does not use dynamic
- * memory allocation, you must instead provide pointers to struct rb, and
- * buffer where data will be stored
+ * Grow ring buffer #rb 2 times. If memory is wrapped around, it will be
+ * relocated so ring buffer is still in valid stated after we're done here.
+ * If #realloc() will not give us more memory, ring buffer stays unmodified.
+ *
+ * @param rb ring buffer to grow
+ *
+ * @return 0 on success, otherwise -1 is returned
+ *
+ * @exception ENOMEM #realloc() failed to give us requested memory
+ * ========================================================================== */
+static int rb_grow(struct rb *rb)
+{
+	size_t new_count;
+	void *new_buffer;
+	size_t count_to_end = rb_count_end(rb);
+
+	new_count = rb->count * 2;
+	new_buffer = realloc(rb->buffer, new_count * rb->object_size);
+	if (new_buffer == NULL)
+		return_errno(-1, ENOMEM);
+
+	rb->buffer = new_buffer;
+	rb->count = new_count;
+
+	/* if head is ahead of tail, memory is not wrapping around,
+	 * so we are effectively done */
+	if (rb->head >= rb->tail)
+		return 0;
+
+	/* memory is wrapped like:
+	 *
+	 *    4 5 6 - - - 1 2 3
+	 *        H       T
+	 *
+	 * numbers represent bytes as they were put on queue, '-' is empty space.
+	 * We must copy 4 5 6 to front, so we get
+	 *
+	 *    - - - - - - 1 2 3 4 5 6
+	 *                T         H
+	 *
+	 * We just grew buffer 2 times, so we are certain we will not overflow
+	 * the buffer with our copy */
+	memcpy(rb->buffer + (rb->tail + count_to_end) * rb->object_size, rb->buffer,
+		rb->head * rb->object_size);
+
+	rb->head += rb->tail + count_to_end;
+	return 0;
+}
+
+/** =========================================================================
+ * Initializes #rb object. Buffer and #rb object must already be allocated.
  *
  * @param rb ring buffer to initialize
  * @param buf memory buffer where data shall be stored
@@ -136,8 +204,8 @@ static int rb_is_power_of_two(size_t x)
  *
  * @return 0 on success, otherwise -1 is returned
  * ========================================================================== */
-int rb_init(struct rb *rb, void *buf, size_t count, size_t object_size,
-	unsigned long flags)
+static int rb_init_p(struct rb *rb, void *buf, size_t count,
+		size_t object_size, unsigned long flags)
 {
 #if ENABLE_THREADS
 	int e; /* errno value from pthread function */
@@ -201,6 +269,33 @@ error_lock:
 }
 
 /** =========================================================================
+ * Initializes new ring buffer object like rb_new but does not use dynamic
+ * memory allocation, you must instead provide pointers to struct rb, and
+ * buffer where data will be stored
+ *
+ * @param rb ring buffer to initialize
+ * @param buf memory buffer where data shall be stored
+ * @param count number of elements that buffer can hold
+ * @param object_size size, in bytes, of a single object
+ * @param flags flags to create buffer with
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * 
+ * @exception EINVAL RB_ROUND_COUNT flag passed
+ * @exception EINVAL RB_GROWABLE flag passed
+ * ========================================================================== */
+int rb_init(struct rb *rb, void *buf, size_t count, size_t object_size,
+	unsigned long flags)
+{
+	VALID(EINVAL, !RB_IS_ROUNDABLE(flags));
+	VALID(EINVAL, !RB_IS_GROWABLE(flags));
+	VALID(EINVAL, rb);
+	VALID(EINVAL, buf);
+
+	return rb_init_p(rb, buf, count, object_size, flags);
+}
+
+/** =========================================================================
  * Initializes ring buffer and allocates all necessary resources.
  *
  * Newly created rb will returned as a pointer. In case of an function
@@ -223,13 +318,16 @@ struct rb *rb_new(size_t count, size_t object_size, unsigned long flags)
 	buf = NULL;
 	e = -1;
 
+	if (flags & RB_ROUND_COUNT)
+		count = rb_nearest_power_if_two(count);
+
 	if ((rb = malloc(sizeof(*rb))) == NULL)
 		goto error;
 
 	if ((buf = malloc(count * object_size)) == NULL)
 		goto error;
 
-	if (rb_init(rb, buf, count, object_size, flags) == 0)
+	if (rb_init_p(rb, buf, count, object_size, flags) == 0)
 		return rb;
 
 	e = errno;
@@ -565,6 +663,15 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 			struct timespec ts;  /* timeout for pthread_cond_timedwait */
 			/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
+			if (RB_IS_GROWABLE(rb->flags)) {
+				if (rb_grow(rb)) {
+					pthread_mutex_unlock(&rb->lock);
+					trace(("i/rb unlock"));
+					return_errno(-1, ENOMEM);
+				} else
+					continue;
+			}
+
 			/* buffer is full and no new data can be pushed, we wait  for
 			 * room or exit if 'rb' is non blocking */
 			if (w || rb->flags & O_NONBLOCK || flags & MSG_DONTWAIT) {
@@ -675,7 +782,7 @@ long rb_sends(struct rb *rb, const void *buffer, size_t count, unsigned long fla
 	if (count == 0)
 		return 0;
 
-	if (rb_space(rb) == 0)
+	if (!RB_IS_GROWABLE(rb->flags) && rb_space(rb) == 0)
 		return_errno(-1, EAGAIN);
 
 	if (count > (size_t)LONG_MAX)
@@ -683,9 +790,15 @@ long rb_sends(struct rb *rb, const void *buffer, size_t count, unsigned long fla
 		 * users count to acceptable value */
 		count = LONG_MAX;
 
-	if (count > (rbspace = rb_space(rb)))
+	while (count > (rbspace = rb_space(rb))) {
 		/* Caller wants to store more data than there is space available */
-		count = rbspace;
+		if (RB_IS_GROWABLE(rb->flags)) {
+			if (rb_grow(rb))
+				return_errno(-1, ENOMEM);
+		} else {
+			count = rbspace;
+		}
+	}
 
 	objsize = rb->object_size;
 	spce = rb_space_end(rb);

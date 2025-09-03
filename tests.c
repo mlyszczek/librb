@@ -599,6 +599,19 @@ static void enomem(void)
 	mt_ferr(rb_destroy(rb), EINVAL);
 }
 
+static void einval_on_init(void)
+{
+	struct rb rb;
+	char buf;
+
+	mt_ferr(rb_init(&rb, &buf, 8, 1, RB_GROWABLE), EINVAL);
+	mt_ferr(rb_init(&rb, &buf, 8, 1, RB_ROUND_COUNT), EINVAL);
+	mt_ferr(rb_init(NULL, &buf, 8, 1, 0), EINVAL);
+	mt_ferr(rb_init(&rb, NULL, 8, 1, 0), EINVAL);
+	mt_ferr(rb_init(&rb, &buf, 7, 1, 0), EINVAL);
+	mt_ferr(rb_init(&rb, &buf, 0, 1, 0), EINVAL);
+}
+
 static void einval(void)
 {
 	struct rb *rb;
@@ -620,7 +633,7 @@ static void einval(void)
 #if ENABLE_THREADS
 	mt_ferr(rb_stop(NULL), EINVAL);
 #else
-	//mt_ferr(rb_stop(NULL), ENOSYS);
+	mt_ferr(rb_stop(NULL), ENOSYS);
 #endif
 	rb_destroy(rb);
 }
@@ -683,10 +696,88 @@ static void stack_init(void)
 #endif
 }
 
+static void grow(void)
+{
+	const char *buf = "123456";
+	char rdbuf[8] = { 0 };
+	struct rb *rb = rb_new(4, 1, RB_GROWABLE);
+	mt_assert(rb);
+
+	mt_fail(rb_write(rb, "123", 3));
+	mt_fail(rb_write(rb, "456", 3));
+	mt_fail(rb_read(rb, rdbuf, 6));
+	mt_fail(strcmp(rdbuf, buf) == 0);
+
+	rb_destroy(rb);
+}
+
+static void grow_warped(void)
+{
+	char rdbuf[16] = { 0 };
+	struct rb *rb = rb_new(8, 1, RB_GROWABLE);
+	mt_assert(rb);
+
+	mt_fail(rb_write(rb, "1234567", 7));
+	mt_fail(rb_read(rb, rdbuf, 4));
+	mt_fail(rb_write(rb, "890", 3));
+	mt_fail(rb_write(rb, "abcde", 5));
+	mt_fail(rb_read(rb, rdbuf, 11));
+	mt_fail(strcmp(rdbuf, "567890abcde") == 0);
+
+	rb_destroy(rb);
+}
+
+static void grow_multiple_times(void)
+{
+	char rdbuf[32] = { 0 };
+	struct rb *rb = rb_new(4, 1, RB_GROWABLE);
+	mt_fail(rb_write(rb, "123", 3));
+	mt_fail(rb_write(rb, "12345678901234567890", 20));
+	mt_fail(rb_read(rb, rdbuf, 32));
+	mt_fail(strcmp(rdbuf, "12312345678901234567890") == 0);
+
+	rb_destroy(rb);
+}
+
+static void grow_multi_warped(void)
+{
+	char rdbuf[256] = { 0 };
+	char ascii[128];
+	struct rb *rb = rb_new(8, 1, RB_GROWABLE);
+	mt_assert(rb);
+
+	for (int i = 0; i <= 126; i++)
+		ascii[i] = (char)(i + 1);
+	ascii[127] = '\0';
+
+	mt_fail(rb_write(rb, "1234567", 7));
+	mt_fail(rb_read(rb, rdbuf, 4));
+	mt_fail(rb_write(rb, "890", 3));
+	mt_fail(rb_write(rb, "abcde", 5));
+	mt_fail(rb_write(rb, ascii, 128));
+	mt_fail(rb_read(rb, rdbuf, 11));
+	mt_fail(strcmp(rdbuf, "567890abcde") == 0);
+	mt_fail(rb_read(rb, rdbuf, 128));
+	mt_fail(strcmp(rdbuf, ascii) == 0);
+
+	rb_destroy(rb);
+}
+
+static void round_count(void)
+{
+	struct rb *rb;
+
+	rb = rb_new(6, 1, RB_ROUND_COUNT);
+	mt_fail(rb->count == 8);
+	rb_destroy(rb);
+	rb = rb_new(201, 1, RB_ROUND_COUNT);
+	mt_fail(rb->count == 256);
+	rb_destroy(rb);
+}
+
 int main(void)
 {
 	srand(time(NULL));
-	//mt_return();
 	unsigned int t_rblen_max = 32;
 	unsigned int t_readlen_max = 32;
 	unsigned int t_writelen_max = 32;
@@ -735,8 +826,14 @@ int main(void)
 	mt_run(discard);
 	mt_run(count_and_space);
 	mt_run(einval);
+	mt_run(einval_on_init);
 	mt_run(enomem);
 	mt_run(stack_init);
+	mt_run(grow);
+	mt_run(grow_warped);
+	mt_run(grow_multiple_times);
+	mt_run(grow_multi_warped);
+	mt_run(round_count);
 
 #if ENABLE_THREADS
 	mt_run(multithread_eagain);
