@@ -17,22 +17,6 @@
 #   include "config.h"
 #endif /* HAVE_CONFIG_H */
 
-#ifdef TRACE_LOG
-#   define _GNU_SOURCE
-#   include <stdio.h>
-#   include <syscall.h>
-#   include <unistd.h>
-
-#   define trace(x) do {                                                       \
-		printf("[%s:%d:%s():%ld]" , __FILE__, __LINE__, __func__,              \
-			syscall(SYS_gettid));                                              \
-		printf x ;                                                             \
-		printf("\n");                                                          \
-	} while (0)
-#else
-#   define trace(x)
-#endif
-
 #if HAVE_ASSERT_H
 #   include <assert.h>
 #else /* HAVE_ASSERT_H */
@@ -46,6 +30,28 @@
 #   include <sys/time.h>
 #endif /* ENABLE_THREADS */
 
+#undef TRACE_LOG
+#ifdef TRACE_LOG
+#   define _GNU_SOURCE
+#   include <stdio.h>
+#   include <syscall.h>
+#   include <unistd.h>
+
+	pthread_mutex_t trace_lock = PTHREAD_MUTEX_INITIALIZER;
+#   define trace(...) do {                                                     \
+		pthread_mutex_lock(&trace_lock);                                       \
+		fprintf(stderr, "[%s:%d:%s():%ld][rb h:%zu,t:%zu;c:%zu]",                       \
+			__FILE__, __LINE__, __func__, syscall(SYS_gettid),                 \
+			rb->head, rb->tail, rb->count);                                    \
+		fprintf(stderr, __VA_ARGS__);                                                             \
+		fprintf(stderr, "\n");                                                          \
+		pthread_mutex_unlock(&trace_lock);                                     \
+	} while (0)
+#else
+#   define trace(...)
+#endif
+
+
 #include "rb.h"
 #include "valid.h"
 
@@ -55,11 +61,12 @@
  *               ░▀▀░░▀▀▀░▀▀▀░▀▀▀░▀░▀░▀░▀░▀░▀░░▀░░▀▀▀░▀▀▀░▀░▀░▀▀▀
  * ========================================================================== */
 #define return_errno(R, E) do { errno = E; return R; } while (0)
-#define lock(L) do { trace(("i/lock " #L)); pthread_mutex_lock(&L); } while (0)
-#define unlock(L) do { pthread_mutex_unlock(&L); trace(("i/unlock " #L)); } while (0)
+#define lock(L) do { trace("i/lock " #L); pthread_mutex_lock(&L); } while (0)
+#define unlock(L) do { pthread_mutex_unlock(&L); trace("i/unlock " #L); } while (0)
 #define RB_IS_GROWABLE(rb) (rb->flags & rb_growable)
 #define RB_IS_ROUNDABLE(rb) (rb->flags & rb_round_count)
 #define RB_IS_DYNAMIC(rb) (rb->flags & rb_dynamic)
+#define RB_IS_BLOCKING(rb, flags) (!(rb->flags & rb_nonblock) && !(flags & rb_dontwait))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 /* ==========================================================================
@@ -143,7 +150,7 @@ static int rb_is_power_of_two(size_t x)
  * Check if #len is valid size for uint8, uint16, uint32 or - if supported -
  * uint64.
  *
- * @param len lenght to check
+ * @param len length to check
  *
  * @return 1 #len has valid size of integer
  * @return 0 #len has invalid size of integer
@@ -292,7 +299,7 @@ static int rb_init_p(struct rb *rb, void *buf, size_t count,
 	VALID(EINVAL, buf);
 	VALID(EINVAL, rb_is_power_of_two(count));
 
-	trace(("count: %zu, objsize: %zu, flags: %u", count, object_size, flags));
+	trace("count: %zu, objsize: %zu, flags: %u", count, object_size, flags);
 
 	if (flags & rb_dynamic)
 		if (rb_is_uint_size(object_size) == 0)
@@ -605,6 +612,54 @@ static int rb_can_read(struct rb *rb, size_t count)
 }
 
 /** =========================================================================
+ * Wait for #rb to be readable.
+ *
+ * For non-dynamic #rb this will return OK when there is any data available.
+ * For dynamic, function will return OK only when whole #count can be read. 
+ *
+ * Call this function with rb->lock in UNLOCK state. This mutex will be
+ * locked on entry, and unlocked while waiting for more space on #rb. When
+ * function returns 0 (OK), rb->lock will be in locked state. When there was
+ * an error, it rb->lock will be in unlocked state.
+ *
+ * If #nread is greater than 0, we will quit immediately just as if #rb was
+ * in non-blocking mode. Standard Unix read(2) can return less than
+ * requested number of bytes if there was no more data to read. So we mimic
+ * this behavior and if we've read anything, and there is no more data, we
+ * will return with success.
+ *
+ * If either #rb or #flags show that operation is non-blocking, function
+ * won't block, and will return -1/EAGAIN if #rb is not readable at the
+ * moment.
+ *
+ * @param rb ring buffer object
+ * @param count requested number of elements you'd like to read from buffer
+ * @param nread number of bytes already read
+ * @param flags operation flags
+ *
+ * @return 0 if #rb is readable, rb->lock will be in locked state
+ * @return -1 #rb is NOT readable, rb->lock will be in unlocked state
+ *
+ * @exception EAGAIN non-blocking operation was requested
+ * ========================================================================== */
+static int rb_wait_for_data(struct rb *rb, size_t count,
+	size_t nread, enum rb_flags flags)
+{
+	lock(rb->lock);
+	while (rb_can_read(rb, count) == 0 && rb->force_exit == 0) {
+		if (nread || !RB_IS_BLOCKING(rb, flags)) {
+			unlock(rb->lock);
+			return_errno(-1, EAGAIN);
+		}
+
+		rb_cond_wait(&rb->wait_data, &rb->lock);
+	}
+
+	return 0;
+}
+
+
+/** =========================================================================
  * Reads count data from #rb into #buffer.
  *
  * Function will block until any data is stored into #buffer,
@@ -630,7 +685,7 @@ static int rb_can_read(struct rb *rb, size_t count)
 static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 	enum rb_flags flags)
 {
-	size_t           nread;    /* number of elements read */
+	long             nread;    /* number of elements read */
 	size_t           to_copy;  /* number of elements to copy from rb */
 	unsigned char   *buf;      /* buffer treated as unsigned char type */
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
@@ -645,35 +700,19 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 	 * bad when reading full packets */
 
 	lock(rb->rlock);
-	trace(("i/count: %zu, flags: %u", count, flags));
+	trace("i/count: %zu, flags: %u", count, flags);
 	while (count) {
-		lock(rb->lock);
-
-		while (rb_can_read(rb, count) == 0 && rb->force_exit == 0) {
-			/* buffer is empty and no data can be read, we wait for any
-			 * data or exit if #rb is non blocking. If we managed to read
-			 * some data previously, let's bail with what we have. */
-			if (nread || rb->flags & rb_nonblock || flags & rb_dontwait) {
-				unlock(rb->lock);
-				unlock(rb->rlock);
-
-				if (nread == 0) {
-					/* set errno only when we did not read any bytes from rb
-					 * this is how standard posix read/send works */
-					trace(("e/eagain"));
-					return_errno(-1, EAGAIN);
-				}
-				return nread;
-			}
-
-			rb_cond_wait(&rb->wait_data, &rb->lock);
+		if (rb_wait_for_data(rb, count, nread, flags)) {
+			unlock(rb->rlock);
+			trace("i/ret, nread: %zu", nread);
+			return nread ? nread : -1;
 		}
 
 		if (rb->force_exit) {
 			/* ring buffer is going down operations on buffer are not allowed */
 			unlock(rb->lock);
 			unlock(rb->rlock);
-			trace(("i/force exit"));
+			trace("i/force exit");
 			return_errno(-1, ECANCELED);
 		}
 
@@ -697,7 +736,7 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 	}
 
 	unlock(rb->rlock);
-	trace(("i/ret %zu", r));
+	trace("i/ret %zu", nread);
 	return nread;
 }
 #endif  /* ENABLE_THREADS */
@@ -904,6 +943,58 @@ static int rb_can_write(struct rb *rb, size_t count)
 }
 
 /** =========================================================================
+ * Wait for #rb to be writable.
+ *
+ * For non-dynamic #rb this will return OK when there is any space available.
+ * For dynamic, function will return OK only when whole #count can be written
+ *
+ * Call this function with rb->lock in UNLOCK state. This mutex will be
+ * locked on entry, and unlocked while waiting for more space on #rb. When
+ * function returns 0 (OK), rb->lock will be in locked state. When there was
+ * an error, it rb->lock will be in unlocked state.
+ *
+ * If either #rb or #flags show that operation is non-blocking, function
+ * won't block, and will return -1/EAGAIN if #rb is not writable at the
+ * moment.
+ *
+ * @param rb ring buffer object
+ * @param count requested number of elements you'd like to put on buffer
+ * @param flags operation flags
+ *
+ * @return 0 if #rb is writable, rb->lock will be in locked state
+ * @return -1 #rb is NOT writable, rb->lock will be in unlocked state
+ *
+ * @exception ENOMEM #rb is growable, but we failed to allocate more memory
+ * @exception EAGAIN non-blocking operation was requested
+ * ========================================================================== */
+static int rb_wait_for_space(struct rb *rb, size_t count, enum rb_flags flags)
+{
+	lock(rb->lock);
+	while (rb_can_write(rb, count) == 0 && rb->force_exit == 0) {
+		/* no free space on the buffer, grow buffer if we are allowed */
+		if (RB_IS_GROWABLE(rb)) {
+			int ret;
+			ret = rb_grow(rb);
+			if (ret) {
+				unlock(rb->lock);
+				return_errno(-1, ENOMEM);
+			} else
+				continue;
+		}
+
+		if (!RB_IS_BLOCKING(rb, flags)) {
+			unlock(rb->lock);
+			return_errno(-1, EAGAIN);
+		}
+
+		/* wait for buffer to free some space */
+		rb_cond_wait(&rb->wait_room, &rb->lock);
+	}
+
+	return 0;
+}
+
+/** =========================================================================
  * Writes #count data pointed by #buffer into #rb. Function will block
  * until there is space on #rb, unless non-blocking flag is set to 1.
  *
@@ -928,52 +1019,28 @@ static int rb_can_write(struct rb *rb, size_t count)
 static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 	enum rb_flags flags)
 {
-	size_t                nwritten; /* number of elements written to rb */
+	long                  nwritten; /* number of elements written to rb */
 	size_t                to_copy;  /* number of elements to copy to rb */
 	const unsigned char  *buf;      /* buffer treated as unsigned char type */
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 	nwritten = 0;
 	buf = buffer;
-	trace(("i/count: %zu, flags: %u", count, flags));
+	trace("i/count: %zu, flags: %u", count, flags);
 	lock(rb->wlock);
 
 	while (count) {
-		lock(rb->lock);
-
-		while (rb_can_write(rb, count) == 0 && rb->force_exit == 0) {
-			/* no free space on the buffer, grow buffer if we are allowed */
-			if (RB_IS_GROWABLE(rb)) {
-				if (rb_grow(rb)) {
-					unlock(rb->lock);
-					return_errno(-1, ENOMEM);
-				} else
-					continue;
-			}
-
-			if (rb->flags & rb_nonblock || flags & rb_dontwait) {
-				/* non blocking operation requested, exit */
-				unlock(rb->lock);
-				unlock(rb->wlock);
-
-				if (nwritten == 0)
-					/* set errno only when we did not read any bytes from rb
-					 * this is how standard posix read/send works */
-					return_errno(-1, EAGAIN);
-
-				trace(("i/ret %zu", w));
-				return nwritten;
-			}
-
-			/* wait for buffer to free some space */
-			rb_cond_wait(&rb->wait_room, &rb->lock);
+		if (rb_wait_for_space(rb, count, flags)) {
+			unlock(rb->wlock);
+			trace("i/ret, nwritten: %zu", nwritten);
+			return nwritten ? nwritten : -1;
 		}
 
 		if (rb->force_exit) {
 			/* ring buffer is going down operations on buffer are not allowed */
 			unlock(rb->lock);
 			unlock(rb->wlock);
-			trace(("i/force exit"));
+			trace("i/force exit");
 			return_errno(-1, ECANCELED);
 		}
 
@@ -1005,7 +1072,7 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 	}
 
 	unlock(rb->wlock);
-	trace(("i/ret %zu", w));
+	trace("i/ret %zu", nwritten);
 	return nwritten;
 }
 #endif
@@ -1161,7 +1228,7 @@ int rb_clear(struct rb *rb, int clear)
 	VALID(EINVAL, rb->buffer);
 
 #if ENABLE_THREADS
-	if ((rb->flags & rb_nonblock) == 0)
+	if (rb->flags & rb_multithread)
 		lock(rb->lock);
 #endif
 
@@ -1172,7 +1239,7 @@ int rb_clear(struct rb *rb, int clear)
 	rb->tail = 0;
 
 #if ENABLE_THREADS
-	if ((rb->flags & rb_nonblock) == 0)
+	if (rb->flags & rb_multithread)
 		unlock(rb->lock);
 #endif
 
