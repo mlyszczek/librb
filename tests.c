@@ -7,6 +7,7 @@ Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
 #include "config.h"
 #endif
 
+#include <stdatomic.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -43,6 +44,9 @@ struct tdata
 	size_t objsize;
 	size_t buflen;
 	int test_type;
+	int num_msgs;
+	atomic_int wr_nmsgs;
+	atomic_int rd_nmsgs;
 };
 
 struct multi_data
@@ -57,8 +61,8 @@ static unsigned t_readlen;
 static unsigned t_writelen;
 static unsigned t_objsize;
 
-static int t_num_producers;
-static int t_num_consumers;
+static int t_nprod;
+static int t_ncons;
 static unsigned char data[250];
 static unsigned int multi_index;
 static volatile unsigned int multi_index_count;
@@ -69,6 +73,56 @@ mt_defs();
 #if ENABLE_THREADS
 static pthread_mutex_t multi_mutex;
 static pthread_mutex_t multi_mutex_count;
+
+static void *dynamic_consumer(void *arg)
+{
+	struct tdata *data = arg;
+	long nread;
+	char rdbuf[128];
+	char verify[128];
+	int current_rd_msg;
+
+	for (size_t i = 0; i != sizeof(verify); i++)
+		verify[i] = i;
+
+	for (;;) {
+		current_rd_msg = atomic_fetch_add(&data->rd_nmsgs, 1);
+		if (current_rd_msg >= data->num_msgs)
+			return NULL;
+
+		memset(rdbuf, 0x00, sizeof(rdbuf));
+		nread = rb_read(data->rb, rdbuf, sizeof(rdbuf));
+		if (nread == -1)
+			/* stop called */
+			return NULL;
+		mt_fail(memcmp(verify, rdbuf, nread) == 0);
+	}
+}
+
+static void *dynamic_producer(void *arg)
+{
+	struct tdata *data = arg;
+	char wrbuf[128];
+	long to_write;
+	long nwritten;
+	int current_wr_msg;
+
+	for (size_t i = 0; i != sizeof(wrbuf); i++)
+		wrbuf[i] = i;
+
+	for (;;) {
+		current_wr_msg = atomic_fetch_add(&data->wr_nmsgs, 1);
+		if (current_wr_msg >= data->num_msgs)
+			return NULL;
+
+		to_write = (rand() % 128) + 1;
+		nwritten = rb_write(data->rb, wrbuf, to_write);
+		if (nwritten == -1)
+			/* stop called */
+			return NULL;
+		mt_fail(nwritten == to_write);
+	}
+}
 
 static void *consumer(void *arg)
 {
@@ -156,6 +210,36 @@ static void *multi_consumer(void *arg)
 	}
 }
 
+static void dynamic_producers_consumers(void)
+{
+	pthread_t *cons;
+	pthread_t *prod;
+	struct tdata tdata;
+	int i;
+
+	cons = malloc(t_ncons * sizeof(*cons));
+	prod = malloc(t_nprod * sizeof(*prod));
+
+	tdata.rb = rb_new(256, sizeof(unsigned int), rb_multithread | rb_dynamic);
+	tdata.num_msgs = 4096;
+	tdata.wr_nmsgs = 0;
+	tdata.rd_nmsgs = 0;
+
+	for (i = 0; i != t_ncons; ++i)
+		pthread_create(&cons[i], NULL, dynamic_consumer, &tdata);
+	for (i = 0; i != t_nprod; ++i)
+		pthread_create(&prod[i], NULL, dynamic_producer, &tdata);
+
+	for (i = 0; i != t_ncons; ++i)
+		pthread_join(cons[i], NULL);
+	for (i = 0; i != t_nprod; ++i)
+		pthread_join(prod[i], NULL);
+
+	rb_destroy(tdata.rb);
+	free(cons);
+	free(prod);
+}
+
 static void multi_producers_consumers(void)
 {
 	pthread_t *cons;
@@ -168,8 +252,8 @@ static void multi_producers_consumers(void)
 	multi_index_count = 0;
 	count  = 0;
 	memset(data, 0, sizeof(data));
-	cons = malloc(t_num_consumers * sizeof(*cons));
-	prod = malloc(t_num_producers * sizeof(*prod));
+	cons = malloc(t_ncons * sizeof(*cons));
+	prod = malloc(t_nprod * sizeof(*prod));
 
 	tdata.rb = rb_new(8, sizeof(unsigned int), rb_multithread);
 	tdata.fd = -1;
@@ -177,10 +261,10 @@ static void multi_producers_consumers(void)
 
 	pthread_mutex_init(&multi_mutex, NULL);
 	pthread_mutex_init(&multi_mutex_count, NULL);
-	for (i = 0; i != t_num_consumers; ++i)
+	for (i = 0; i != t_ncons; ++i)
 		pthread_create(&cons[i], NULL, multi_consumer, &tdata);
 
-	for (i = 0; i != t_num_producers; ++i)
+	for (i = 0; i != t_nprod; ++i)
 		pthread_create(&prod[i], NULL, multi_producer, &tdata);
 
 	/* wait until all indexes has been consumed */
@@ -198,10 +282,10 @@ static void multi_producers_consumers(void)
 
 	rb_stop(tdata.rb);
 
-	for (i = 0; i != t_num_consumers; ++i)
+	for (i = 0; i != t_ncons; ++i)
 		pthread_join(cons[i], NULL);
 
-	for (i = 0; i != t_num_producers; ++i)
+	for (i = 0; i != t_nprod; ++i)
 		pthread_join(prod[i], NULL);
 
 	rb_destroy(tdata.rb);
@@ -213,7 +297,7 @@ static void multi_producers_consumers(void)
 
 	if (r != 0)
 		printf("num_consumers = %d, num_producers = %d\n",
-			t_num_consumers, t_num_producers);
+			t_ncons, t_nprod);
 
 	free(cons);
 	free(prod);
@@ -775,6 +859,94 @@ static void round_count(void)
 	rb_destroy(rb);
 }
 
+static void dynamic_simple(void)
+{
+	struct rb *rb;
+	char rdbuf[32];
+
+	rb = rb_new(16, 1, rb_dynamic);
+	rb_write(rb, "1234567890", 11);
+	mt_ferr(rb_write(rb, "0987654321", 11), ENOBUFS);
+	rb_read(rb, rdbuf, 32);
+	mt_fail(strcmp(rdbuf, "1234567890") == 0);
+	mt_ferr(rb_read(rb, rdbuf, 32), EAGAIN);
+	rb_destroy(rb);
+}
+
+struct dynamic_growable {
+	int object_size;
+	int msglen;
+};
+static void dynamic_growable(struct dynamic_growable *arg)
+{
+	struct rb *rb;
+	char rdbuf[128];
+	char wrbuf[128];
+	enum rb_flags flags = rb_growable | rb_dynamic | rb_round_count;
+
+	rb = rb_new(10 * arg->object_size, arg->object_size, flags);
+	for (unsigned char n = 0; n < arg->msglen; n++)
+		wrbuf[n] = n+1;
+
+	for (int j = 0; j < 100; j++)
+		mt_fail(rb_write(rb, wrbuf, arg->msglen) == arg->msglen);
+
+	for (int j = 0; j < 100; j++) {
+		memset(rdbuf, 0x00, sizeof(rdbuf));
+		mt_fail(rb_read(rb, rdbuf, sizeof(rdbuf)) == arg->msglen);
+		mt_fail(memcmp(rdbuf, wrbuf, arg->msglen) == 0);
+	}
+
+	rb_destroy(rb);
+}
+static void dynamic_growable_midread(struct dynamic_growable *arg)
+{
+	struct rb *rb;
+	char rdbuf[128];
+	char wrbuf[128];
+	enum rb_flags flags = rb_growable | rb_dynamic | rb_round_count;
+
+	rb = rb_new(10 * arg->object_size, arg->object_size, flags);
+	for (unsigned char n = 0; n < arg->msglen; n++)
+		wrbuf[n] = n+1;
+
+	for (int i = 0; i != 4; i++) {
+		for (int j = 0; j < 50; j++)
+			mt_fail(rb_write(rb, wrbuf, arg->msglen) == arg->msglen);
+
+		for (int j = 0; j < 25; j++) {
+			memset(rdbuf, 0x00, sizeof(rdbuf));
+			mt_fail(rb_read(rb, rdbuf, sizeof(rdbuf)) == arg->msglen);
+			mt_fail(memcmp(rdbuf, wrbuf, arg->msglen) == 0);
+		}
+	}
+	for (int j = 0; j < 100; j++) {
+		memset(rdbuf, 0x00, sizeof(rdbuf));
+		mt_fail(rb_read(rb, rdbuf, sizeof(rdbuf)) == arg->msglen);
+		mt_fail(memcmp(rdbuf, wrbuf, arg->msglen) == 0);
+	}
+
+	rb_destroy(rb);
+}
+
+static void dynamic_peek_size(void)
+{
+	char buf[100];
+	struct rb *rb = rb_new(256, 1, rb_dynamic);
+
+	mt_fail(rb_write(rb, buf, 100) == 100);
+	mt_fail(rb_peek_size(rb) == 100);
+	mt_fail(rb_write(rb, buf, 84) == 84);
+	mt_fail(rb_peek_size(rb) == 100);
+
+	mt_fail(rb_read(rb, buf, 100) == 100);
+	mt_fail(rb_peek_size(rb) == 84);
+	mt_fail(rb_read(rb, buf, 100) == 84);
+	mt_fail(rb_peek_size(rb) == 0);
+
+	rb_destroy(rb);
+}
+
 int main(void)
 {
 	srand(time(NULL));
@@ -783,40 +955,54 @@ int main(void)
 	unsigned int t_writelen_max = 32;
 	unsigned int t_objsize_max = 32;
 
-	int t_num_producers_max = 8;
-	int t_num_consumers_max = 8;
+	int t_nprod_max = 8;
+	int t_ncons_max = 8;
 
 	char name[128];
 
 #if ENABLE_THREADS
-	for (t_num_consumers = 1; t_num_consumers <= t_num_consumers_max; t_num_consumers++) {
-		for (t_num_producers = 1; t_num_producers <= t_num_producers_max; t_num_producers++) {
-			sprintf(name, "multi_producers_consumers producers: %d "
-				"consumers %d", t_num_producers, t_num_consumers);
-			mt_run_named(multi_producers_consumers, name);
-		}
-	}
+	for (t_ncons = 1; t_ncons <= t_ncons_max; t_ncons++) {
+	for (t_nprod = 1; t_nprod <= t_nprod_max; t_nprod++) {
+		sprintf(name, "dynamic_producers_consumers producers: %d "
+			"consumers %d", t_nprod, t_ncons);
+		mt_run_named(dynamic_producers_consumers, name);
+	} }
+#endif
+
+	for (int s = 1; s <= 8; s <<= 1) {
+	for (int msglen = 1; msglen <= 126; msglen++) {
+		struct dynamic_growable arg = { s, msglen };
+		sprintf(name, "dynamic_growable object_size: %d, msglen: %d", s, msglen);
+		mt_run_param_named(dynamic_growable, &arg, name);
+		sprintf(name, "dynamic_growable_midread object_size: %d, msglen: %d", s, msglen);
+		mt_run_param_named(dynamic_growable_midread, &arg, name);
+	} }
+
+#if ENABLE_THREADS
+	for (t_ncons = 1; t_ncons <= t_ncons_max; t_ncons++) {
+	for (t_nprod = 1; t_nprod <= t_nprod_max; t_nprod++) {
+		sprintf(name, "multi_producers_consumers producers: %d "
+			"consumers %d", t_nprod, t_ncons);
+		mt_run_named(multi_producers_consumers, name);
+	} }
 #endif
 
 	for (t_rblen = 2; t_rblen <= t_rblen_max; t_rblen *= 2) {
-		for (t_readlen = 2; t_readlen <= t_readlen_max; t_readlen *= 2) {
-			for (t_writelen = 2; t_writelen <= t_writelen_max; t_writelen *= 2) {
-				for (t_objsize = 2; t_objsize <= t_objsize_max; t_objsize *= 2) {
+	for (t_readlen = 2; t_readlen <= t_readlen_max; t_readlen *= 2) {
+	for (t_writelen = 2; t_writelen <= t_writelen_max; t_writelen *= 2) {
+		for (t_objsize = 2; t_objsize <= t_objsize_max; t_objsize *= 2) {
 #if ENABLE_THREADS
-					sprintf(name, "multi_thread with buffer %3d, %3d, %3d, %3d",
-						t_rblen, t_readlen, t_writelen, t_objsize);
-					mt_run_named(multi_thread, name);
+			sprintf(name, "multi_thread with buffer %3d, %3d, %3d, %3d",
+				t_rblen, t_readlen, t_writelen, t_objsize);
+			mt_run_named(multi_thread, name);
 #endif
 
-					sprintf(name, "single_thread with buffer %3d, %3d, %3d, %3d",
-						t_rblen, t_readlen, t_writelen, t_objsize);
-					mt_run_named(single_thread, name);
-				}
-
-				t_objsize = 1;
-			}
+			sprintf(name, "single_thread with buffer %3d, %3d, %3d, %3d",
+				t_rblen, t_readlen, t_writelen, t_objsize);
+			mt_run_named(single_thread, name);
 		}
-	}
+		t_objsize = 1;
+	} } }
 
 	mt_run(peeking);
 	mt_run(bad_count_value);
@@ -834,6 +1020,8 @@ int main(void)
 	mt_run(grow_multiple_times);
 	mt_run(grow_multi_warped);
 	mt_run(round_count);
+	mt_run(dynamic_simple);
+	mt_run(dynamic_peek_size);
 
 #if ENABLE_THREADS
 	mt_run(multithread_eagain);

@@ -60,6 +60,14 @@ enum rb_flags
 	 * This only makes sense to use when you are creating ring buffer with
 	 * #rb_new() function */
 	rb_growable    = 1 <<  5,
+
+	/** ======================================================================
+	 * Create dynamic ring buffer. Normally ring buffer holds object of
+	 * static object size, like bytes (object_size == 1), or structs
+	 * (object_size == sizeof(struct your_struct). Dynamic ring buffer
+	 * may contain different structs, or null terminated strings, that can
+	 * be fully retrieved with single #rb_read() call */
+	rb_dynamic     = 1 <<  6,
 };
 
 struct rb
@@ -91,6 +99,7 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags);
 long rb_write(struct rb *rb, const void *buffer, size_t count);
 long rb_send(struct rb *rb, const void *buffer, size_t count,
 	enum rb_flags flags);
+long rb_peek_size(struct rb *rb);
 
 int rb_clear(struct rb *rb, int clear);
 int rb_destroy(struct rb *rb);

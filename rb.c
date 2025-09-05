@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -23,11 +24,11 @@
 #   include <unistd.h>
 
 #   define trace(x) do {                                                       \
-        printf("[%s:%d:%s():%ld]" , __FILE__, __LINE__, __func__,              \
-            syscall(SYS_gettid));                                              \
-        printf x ;                                                             \
-        printf("\n");                                                          \
-    } while (0)
+		printf("[%s:%d:%s():%ld]" , __FILE__, __LINE__, __func__,              \
+			syscall(SYS_gettid));                                              \
+		printf x ;                                                             \
+		printf("\n");                                                          \
+	} while (0)
 #else
 #   define trace(x)
 #endif
@@ -37,12 +38,6 @@
 #else /* HAVE_ASSERT_H */
 #   define assert(x)
 #endif /* HAVE_ASSERT_H */
-
-#include <errno.h>
-#include <limits.h>
-#include <stddef.h>
-#include <stdlib.h>
-#include <string.h>
 
 #if ENABLE_THREADS
 #   include <fcntl.h>
@@ -62,8 +57,10 @@
 #define return_errno(R, E) do { errno = E; return R; } while (0)
 #define lock(L) do { trace(("i/lock " #L)); pthread_mutex_lock(&L); } while (0)
 #define unlock(L) do { pthread_mutex_unlock(&L); trace(("i/unlock " #L)); } while (0)
-#define RB_IS_GROWABLE(flags) (flags & rb_growable)
-#define RB_IS_ROUNDABLE(flags) (flags & rb_round_count)
+#define RB_IS_GROWABLE(rb) (rb->flags & rb_growable)
+#define RB_IS_ROUNDABLE(rb) (rb->flags & rb_round_count)
+#define RB_IS_DYNAMIC(rb) (rb->flags & rb_dynamic)
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 /* ==========================================================================
  *                     ░█▀▀░█░█░█▀█░█▀▀░▀█▀░▀█▀░█▀█░█▀█░█▀▀
@@ -90,7 +87,6 @@ static size_t rb_count_end(const struct rb *rb)
 
 	return n < end ? n : end;
 }
-
 
 /** =========================================================================
  * Calculates how many elements can be pushed into ring buffer
@@ -144,6 +140,84 @@ static int rb_is_power_of_two(size_t x)
 }
 
 /** =========================================================================
+ * Check if #len is valid size for uint8, uint16, uint32 or - if supported -
+ * uint64.
+ *
+ * @param len lenght to check
+ *
+ * @return 1 #len has valid size of integer
+ * @return 0 #len has invalid size of integer
+ * ========================================================================== */
+static int rb_is_uint_size(size_t len)
+{
+#ifdef UINT64_MAX
+	size_t max_len = sizeof(uint64_t);
+#else
+	size_t max_len = sizeof(uint32_t);
+#endif
+
+	if (len > max_len)
+		return 0;
+
+	if (rb_is_power_of_two(len))
+		return 1;
+
+	return 0;
+}
+
+/** =========================================================================
+ * Returns the number of leading 0-bits in x, starting at the most
+ * significant bit position. If x is 0, the result is undefined.
+ *
+ * For example, if #len is 1 (0b1) it will return 0, for #len 4 (0b100)
+ * function will return 2
+ *
+ * @return Returns the number of leading 0-bits in x
+ * ========================================================================== */
+static unsigned rb_ctz(size_t len)
+{
+	return __builtin_ctz(len);
+}
+
+/** =========================================================================
+ * Get size of data length information that resides before actual data.
+ * For non-dynamic ring buffers, this will return 0
+ *
+ * @param rb ring buffer object
+ *
+ * @return 0 #rb object is not dynamic
+ * @return size in bytes of data length information
+ * ========================================================================== */
+static int rb_dynamic_len_size(struct rb *rb)
+{
+	return RB_IS_DYNAMIC(rb) ? 1 << rb->object_size : 0;
+}
+
+/** =========================================================================
+ * Wait for conditional variable to get signaled
+ * ========================================================================== */
+static void rb_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
+{
+	struct timespec ts;  /* timeout for pthread_cond_timedwait */
+
+	/* This happens only after calling rb_stop()
+	 *
+	 * on some very rare occasions it is possible that signal won't
+	 * reach out rb->wait_room conditional variable. This shouldn't
+	 * happen, but yet it does. Such behavior may cause deadlock.
+	 * To prevent deadlock we wake this thread every now and then to
+	 * make sure program is running. When everything works ok, this
+	 * has marginal impact on performance and when things go south,
+	 * instead of deadlocking we stall execution for maximum 5
+	 * seconds.
+	 *
+	 * TODO: look into this and try to make proper fix */
+	clock_gettime(CLOCK_REALTIME, &ts);
+	ts.tv_sec += 5;
+	pthread_cond_timedwait(cond, mutex, &ts);
+}
+
+/** =========================================================================
  * Grow ring buffer #rb 2 times. If memory is wrapped around, it will be
  * relocated so ring buffer is still in valid stated after we're done here.
  * If #realloc() will not give us more memory, ring buffer stays unmodified.
@@ -159,9 +233,11 @@ static int rb_grow(struct rb *rb)
 	size_t new_count;
 	void *new_buffer;
 	size_t count_to_end = rb_count_end(rb);
+	size_t objsize;
 
 	new_count = rb->count * 2;
-	new_buffer = realloc(rb->buffer, new_count * rb->object_size);
+	objsize = RB_IS_DYNAMIC(rb) ? 1 : rb->object_size;
+	new_buffer = realloc(rb->buffer, new_count * objsize);
 	if (new_buffer == NULL)
 		return_errno(-1, ENOMEM);
 
@@ -186,8 +262,8 @@ static int rb_grow(struct rb *rb)
 	 *
 	 * We just grew buffer 2 times, so we are certain we will not overflow
 	 * the buffer with our copy */
-	memcpy(rb->buffer + (rb->tail + count_to_end) * rb->object_size, rb->buffer,
-		rb->head * rb->object_size);
+	memcpy(rb->buffer + (rb->tail + count_to_end) * objsize, rb->buffer,
+		rb->head * objsize);
 
 	rb->head += rb->tail + count_to_end;
 	return 0;
@@ -203,6 +279,8 @@ static int rb_grow(struct rb *rb)
  * @param flags flags to create buffer with
  *
  * @return 0 on success, otherwise -1 is returned
+ *
+ * @exception EINVAL rb is dynamic, but object_size is not valid integer size
  * ========================================================================== */
 static int rb_init_p(struct rb *rb, void *buf, size_t count,
 		size_t object_size, enum rb_flags flags)
@@ -216,12 +294,16 @@ static int rb_init_p(struct rb *rb, void *buf, size_t count,
 
 	trace(("count: %zu, objsize: %zu, flags: %u", count, object_size, flags));
 
+	if (flags & rb_dynamic)
+		if (rb_is_uint_size(object_size) == 0)
+			return_errno(-1, EINVAL);
+
 	rb->buffer = buf;
 	rb->head = 0;
 	rb->tail = 0;
 	rb->count = count;
-	rb->object_size = object_size;
 	rb->flags = flags;
+	rb->object_size = RB_IS_DYNAMIC(rb) ? rb_ctz(object_size) : object_size;
 
 #if ENABLE_THREADS == 0
 	/*
@@ -287,8 +369,8 @@ error_lock:
 int rb_init(struct rb *rb, void *buf, size_t count, size_t object_size,
 	enum rb_flags flags)
 {
-	VALID(EINVAL, !RB_IS_ROUNDABLE(flags));
-	VALID(EINVAL, !RB_IS_GROWABLE(flags));
+	VALID(EINVAL, !(flags & rb_round_count));
+	VALID(EINVAL, !(flags & rb_growable));
 	VALID(EINVAL, rb);
 	VALID(EINVAL, buf);
 
@@ -340,6 +422,96 @@ error:
 }
 
 /** =========================================================================
+ * Copy data from #buffer onto #rb ring buffer. This function does not
+ * perform any checks, so so you must make sure #count is not bigger than
+ * #buffer or current #rb count. It will handle memory wrapping.
+ *
+ * @param rb ring buffer object
+ * @param buffer location where data from rb will be stored
+ * @param count requested number of data from rb
+ * @param peek read, but don't remove data from #rb
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+static long rb_copy_from(struct rb *rb, void *buffer, size_t count, int peek)
+{
+	size_t          cnte;     /* number of elements in rb until overlap */
+	size_t          objsize;  /* size, in bytes, of single object in rb */
+	unsigned char*  buf;      /* buffer treated as unsigned char type */
+	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+	objsize = RB_IS_DYNAMIC(rb) ? 1 : rb->object_size;
+	cnte = rb_count_end(rb);
+	buf = buffer;
+
+	if (count > cnte) {
+		/* Memory wraps, copy data in two turns */
+		memcpy(buf, rb->buffer + rb->tail * objsize, objsize * cnte);
+		memcpy(buf + cnte * objsize, rb->buffer, (count - cnte) * objsize);
+		rb->tail = peek ? rb->tail : count - cnte;
+	} else {
+		memcpy(buf, rb->buffer + rb->tail * objsize, count * objsize);
+		rb->tail += peek ? 0 : count;
+		rb->tail &= rb->count - 1;
+	}
+
+	return count;
+}
+
+static inline size_t rb_dynamic_read_count_8(struct rb *rb, int peek)
+{
+	uint8_t cnt;
+	rb_copy_from(rb, &cnt, sizeof(cnt), peek);
+	return cnt;
+}
+
+static inline size_t rb_dynamic_read_count_16(struct rb *rb, int peek)
+{
+	uint16_t cnt;
+	rb_copy_from(rb, &cnt, sizeof(cnt), peek);
+	return cnt;
+}
+
+static inline size_t rb_dynamic_read_count_32(struct rb *rb, int peek)
+{
+	uint32_t cnt;
+	rb_copy_from(rb, &cnt, sizeof(cnt), peek);
+	return cnt;
+}
+
+#ifdef UINT64_MAX
+static inline size_t rb_dynamic_read_count_64(struct rb *rb, int peek)
+{
+	uint64_t cnt;
+	rb_copy_from(rb, &cnt, sizeof(cnt), peek);
+	return cnt;
+}
+#endif
+
+/** =========================================================================
+ * @param rb ring buffer object
+ * @param peek if set, data will not be removed from #rb on read
+ *
+ * @return length of next message on ring buffer
+ * ========================================================================== */
+static size_t rb_dynamic_read_count(struct rb *rb, int peek)
+{
+	int index;
+
+	size_t (* const read[])(struct rb *rb, int peek) = {
+		rb_dynamic_read_count_8,
+		rb_dynamic_read_count_16,
+		rb_dynamic_read_count_32,
+#ifdef UINT64_MAX
+		rb_dynamic_read_count_64,
+#endif
+	};
+
+	index = rb->object_size;
+	return read[index](rb, peek);
+}
+
+/** =========================================================================
  * Reads maximum of count elements from rb and stores them into buffer.
  *
  * Function will never block, and cannot guarantee writing count elements
@@ -348,7 +520,7 @@ error:
  *
  * Function also accepts flags.
  * - rb_peek: do normal read operation, but do not remove read data from
- *   ring buffer, calling recv() with this flag multiple times wille yield
+ *   ring buffer, calling recv() with this flag multiple times will yield
  *   same results (provided that no new data is copied to ring buffer)
  *
  * @param rb ring buffer object
@@ -358,14 +530,19 @@ error:
  *
  * @return Number of bytes copied to #buffer
  * @return -1 when no data could be copied to #buffer (rb is empty)
+ *
  * @exception EAGAIN ring buffer is empty, nothing copied to #buffer
+ * @exception EMSGSIZE #rb is dynamic, and #count is bigger than it's
+ *            described by #rb->object_size
+ * @exception ENOBUFS #rb is dynamic and there is data on #rb, but #buffer
+ *            is not big enough to hold whole message
  * ========================================================================== */
 static long rb_recvs(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 {
-	size_t          rbcount;  /* number of elements in rb */
-	size_t          cnte;     /* number of elements in rb until overlap */
-	size_t          objsize;  /* size, in bytes, of single object in rb */
-	unsigned char*  buf;      /* buffer treated as unsigned char type */
+	size_t  rbcount;     /* number of elements in rb */
+	size_t  dyn_next_count; /* size of next dynamic message in buffer */
+	size_t  nread;
+	size_t  tail_save;
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 	VALID(EINVAL, rb);
@@ -379,42 +556,65 @@ static long rb_recvs(struct rb *rb, void *buffer, size_t count, enum rb_flags fl
 		return_errno(-1, EAGAIN);
 
 	if (count > (size_t)LONG_MAX)
-		/* function cannot read more than LONG_MAX count of  elements,  trim
-		 * users count to acceptable value */
+		/* function cannot read more than LONG_MAX count of elements,
+		 * trim users count to acceptable value */
 		count = LONG_MAX;
 
-	if (count > (rbcount = rb_count(rb)))
-		/* Caller requested more data then is available, adjust count */
-		count = rbcount;
-
-	objsize = rb->object_size;
-	cnte = rb_count_end(rb);
-	buf = buffer;
-
-	if (count > cnte) {
-		/* Memory overlaps, copy data in two turns */
-		memcpy(buf, rb->buffer + rb->tail * objsize, objsize * cnte);
-		memcpy(buf + cnte * objsize, rb->buffer, (count - cnte) * objsize);
-		rb->tail = flags & rb_peek ? rb->tail : count - cnte;
-	} else {
-		/* Memory doesn't overlap, good we can do copying on one go */
-		memcpy(buf, rb->buffer + rb->tail * objsize, count * objsize);
-		rb->tail += flags & rb_peek ? 0 : count;
-		rb->tail &= rb->count - 1;
+	if (!RB_IS_DYNAMIC(rb)) {
+		rbcount = rb_count(rb);
+		if (count > rbcount)
+			/* Caller requested more data then is available, adjust count */
+			count = rbcount;
+		return rb_copy_from(rb, buffer, count, flags & rb_peek);
 	}
 
-	return count;
+	tail_save = rb->tail;
+	dyn_next_count = rb_dynamic_read_count(rb, 0);
+	if (count < dyn_next_count) {
+		rb->tail = tail_save;
+		return_errno(-1, ENOBUFS);
+	}
+
+	nread = rb_copy_from(rb, buffer, dyn_next_count, 0);
+	if (flags & rb_peek)
+		rb->tail = tail_save;
+	return nread;
 }
 
 #if ENABLE_THREADS
+
 /** =========================================================================
- * Reads count data from #rb into #buffer. Function will block until
- * any data is stored into #buffer, unless non blocking #flag is set to 1.
- * When #rb is exhausted and there is still data to read, caller thread
- * will be put to sleep and will be waked up as soon as there is data in
- * #rb. If #rb is non blocking or #flag is rb_nonblock when there is no
- * data in buffer, function will return -1 and EAGAIN
+ * Check if we can safely read from the #rb buffer
  *
+ * For not dynamic #rb, #count is ignored, and function returns 1 when there
+ * is at least 1 element on the #rb
+ *
+ * For dynamic #rb, 1 will be returned only when next message on #rb can be
+ * fully copied to buffer of size #count
+ *
+ * @param rb 
+ * @param count 
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+static int rb_can_read(struct rb *rb, size_t count)
+{
+	if (!RB_IS_DYNAMIC(rb))
+		return rb_count(rb);
+	return rb_count(rb) && count >= rb_dynamic_read_count(rb, rb_peek);
+}
+
+/** =========================================================================
+ * Reads count data from #rb into #buffer.
+ *
+ * Function will block until any data is stored into #buffer,
+ * unless non blocking #flag is set to 1.
+ *
+ * If caller passes more #count than there are bytes in #rb, function
+ * will copy as many as it can and will return with value less than #count.
+ *
+ * If #rb is non blocking or #flag is rb_nonblock when there is no
+ * data in buffer, function will return -1 and EAGAIN
  *
  * @param rb ring buffer to read data from
  * @param buffer location where data shall be copied to
@@ -430,12 +630,12 @@ static long rb_recvs(struct rb *rb, void *buffer, size_t count, enum rb_flags fl
 static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 	enum rb_flags flags)
 {
-	size_t          r;       /* number of elements read */
-	unsigned char   *buf;    /* buffer treated as unsigned char type */
+	size_t           nread;    /* number of elements read */
+	size_t           to_copy;  /* number of elements to copy from rb */
+	unsigned char   *buf;      /* buffer treated as unsigned char type */
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
-	r = 0;
-	errno = 0;
+	nread = 0;
 	buf = buffer;
 
 	/* globally lock read mutex, we don't want to let multiple readers to
@@ -447,50 +647,26 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 	lock(rb->rlock);
 	trace(("i/count: %zu, flags: %u", count, flags));
 	while (count) {
-		size_t count_to_end;
-		size_t count_to_read;
-		size_t bytes_to_read;
-		/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
-
 		lock(rb->lock);
 
-		while (rb_count(rb) == 0 && rb->force_exit == 0) {
-			struct timespec ts;  /* timeout for pthread_cond_timedwait */
-			/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
-
+		while (rb_can_read(rb, count) == 0 && rb->force_exit == 0) {
 			/* buffer is empty and no data can be read, we wait for any
 			 * data or exit if #rb is non blocking. If we managed to read
 			 * some data previously, let's bail with what we have. */
-			if (r || rb->flags & rb_nonblock || flags & rb_dontwait) {
+			if (nread || rb->flags & rb_nonblock || flags & rb_dontwait) {
 				unlock(rb->lock);
 				unlock(rb->rlock);
 
-				if (r == 0) {
+				if (nread == 0) {
 					/* set errno only when we did not read any bytes from rb
 					 * this is how standard posix read/send works */
 					trace(("e/eagain"));
-					errno = EAGAIN;
-					return -1;
+					return_errno(-1, EAGAIN);
 				}
-				return r;
+				return nread;
 			}
 
-			clock_gettime(CLOCK_REALTIME, &ts);
-			ts.tv_sec += 5;
-
-			/* This happens only after calling rb_stop()
-			 *
-			 * on some very rare occasions it is possible that signal won't
-			 * reach out rb->wait_data conditional variable. This shouldn't
-			 * happen, but yet it does. Such behavior may cause deadlock.
-			 * To prevent deadlock we wake this thread every now and then to
-			 * make sure program is running. When everything works ok, this
-			 * has marginal impact on performance and when things go south,
-			 * instead of deadlocking we stall execution for maximum 5 seconds.
-			 *
-			 * TODO: look into this and try to make proper fix */
-
-			pthread_cond_timedwait(&rb->wait_data, &rb->lock, &ts);
+			rb_cond_wait(&rb->wait_data, &rb->lock);
 		}
 
 		if (rb->force_exit) {
@@ -498,22 +674,22 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 			unlock(rb->lock);
 			unlock(rb->rlock);
 			trace(("i/force exit"));
-			errno = ECANCELED;
-			return -1;
+			return_errno(-1, ECANCELED);
 		}
 
-		count_to_end = rb_count_end(rb);
-		count_to_read = count > count_to_end ? count_to_end : count;
-		bytes_to_read = count_to_read * rb->object_size;
+		/* read as much as we can from ring buffer */
+		if (RB_IS_DYNAMIC(rb)) {
+			nread = rb_recvs(rb, buffer, count, flags);
+			count = 0;
+		} else {
+			to_copy = MIN(count, (size_t)rb_count(rb));
 
-		memcpy(buf, rb->buffer + rb->tail * rb->object_size, bytes_to_read);
-		buf += bytes_to_read;
+			rb_copy_from(rb, buf, to_copy, flags & rb_peek);
 
-		/* Adjust pointers and counts for the next read */
-		rb->tail += count_to_read;
-		rb->tail &= rb->count - 1;
-		r += count_to_read;
-		count -= count_to_read;
+			buf += to_copy * rb->object_size;
+			count -= to_copy;
+			nread += to_copy;
+		}
 
 		/* Signal any threads that waits for space to put data in buffer */
 		pthread_cond_signal(&rb->wait_room);
@@ -522,7 +698,7 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 
 	unlock(rb->rlock);
 	trace(("i/ret %zu", r));
-	return r;
+	return nread;
 }
 #endif  /* ENABLE_THREADS */
 
@@ -602,17 +778,142 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 #endif
 }
 
+/** =========================================================================
+ * Copy #buffer onto #rb ring buffer. This function does not perform any
+ * checks, so you must make sure #count is not bigger than free space on
+ * #rb buffer. It will handle memory wrapping.
+ *
+ * @param rb ring buffer where to copy data
+ * @param buffer data to copy to ring buffer
+ * @param count number of elements to copy to ring buffer
+ *
+ * @return number of bytes copied to ring buffer
+ * ========================================================================== */
+static size_t rb_copy_to(struct rb *rb, const void *buffer, size_t count)
+{
+	size_t                spce;     /* space left in rb until overlap */
+	size_t                objsize;  /* size of a single element in rb */
+	const unsigned char*  buf;      /* buffer treated as unsigned char */
+	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+	objsize = RB_IS_DYNAMIC(rb) ? 1 : rb->object_size;
+	spce = rb_space_end(rb);
+	buf = buffer;
+
+	if (count > spce) {
+		/* Memory wraps, copy data in two turns */
+		memcpy(rb->buffer + rb->head * objsize, buf, spce * objsize);
+		memcpy(rb->buffer, buf + spce * objsize, (count - spce) * objsize);
+		rb->head = count - spce;
+	} else {
+		memcpy(rb->buffer + rb->head * objsize, buf, count * objsize);
+		rb->head += count;
+		rb->head &= rb->count - 1;
+	}
+
+	return count;
+}
+
+static inline void rb_dynamic_write_count_8(struct rb *rb, size_t count)
+{
+	uint8_t cnt = count;
+	rb_copy_to(rb, &cnt, sizeof(cnt));
+}
+
+static inline void rb_dynamic_write_count_16(struct rb *rb, size_t count)
+{
+	uint16_t cnt = count;
+	rb_copy_to(rb, &cnt, sizeof(cnt));
+}
+
+static inline void rb_dynamic_write_count_32(struct rb *rb, size_t count)
+{
+	uint32_t cnt = count;
+	rb_copy_to(rb, &cnt, sizeof(cnt));
+}
+
+#ifdef UINT64_MAX
+static inline void rb_dynamic_write_count_64(struct rb *rb, size_t count)
+{
+	uint64_t cnt = count;
+	rb_copy_to(rb, &cnt, sizeof(cnt));
+}
+#endif
+
+/** =========================================================================
+ * Write #count into ring buffer. Maximum #count is determined by object_size
+ * and is validated here. After validating size, and making sure there will
+ * be no precision loss, count is casted to integer of size that is stored in
+ * object_size.
+ *
+ * @param rb ring buffer object
+ * @param count data to store onto ring buffer
+ *
+ * @return 0 when #count was written to buffer, or -1 on error
+ *
+ * @exception EMSGSIZE #count is too large
+ * ========================================================================== */
+static int rb_dynamic_write_count(struct rb *rb, size_t count)
+{
+	int index;
+
+#ifdef UINT64_MAX
+	const uint64_t max[] = { UINT8_MAX, UINT16_MAX, UINT32_MAX, UINT64_MAX };
+#else
+	const uint32_t max[] = { UINT8_MAX, UINT16_MAX, UINT32_MAX };
+#endif
+	void (* const write[])(struct rb *rb, size_t count) = {
+		rb_dynamic_write_count_8,
+		rb_dynamic_write_count_16,
+		rb_dynamic_write_count_32,
+#ifdef UINT64_MAX
+		rb_dynamic_write_count_64,
+#endif
+	};
+
+	index = rb->object_size;
+
+	if (count > max[index])
+		return_errno(-1, EMSGSIZE);
+
+	write[index](rb, count);
+	return 0;
+}
+
 #if ENABLE_THREADS
+/** =========================================================================
+ * Check if buffer of size #count can be written.
+ *
+ * For not dynamic #rb, #count is ignored, and function returns 1, when
+ * there is at least 1 space free on #rb
+ *
+ * For dynamic #rb, 1 will be returned only when #count + metadata needed
+ * to store message length in #rb can fit into #rb
+ *
+ * @param rb ring buffer object
+ * @param count buffer size that we would like to put into #rb
+ *
+ * @return 0 when you cannot write to #rb
+ * @return 1 when you can write to #rb
+ * ========================================================================== */
+static int rb_can_write(struct rb *rb, size_t count)
+{
+	if (!RB_IS_DYNAMIC(rb))
+		return rb_space(rb);
+	return count + rb_dynamic_len_size(rb) <= (size_t)rb_space(rb);
+}
+
 /** =========================================================================
  * Writes #count data pointed by #buffer into #rb. Function will block
  * until there is space on #rb, unless non-blocking flag is set to 1.
- * When #rb is full and there is still data to write, caller thread will
- * be put to sleep and will be waked up as soon as there is space in rb.
+ *
+ * Function will block until all #count data has been written to the buffer.
+ *
  * When non blocking flag is set to 1, and there is less space in #rb than
  * requested #count, function will copy as many elements as it can and will
  * return with number of elements written to #rb. If #rb is full, function
  * returns -1 and EAGAIN error.
-
+ *
  * @param rb ring buffer to write to
  * @param buffer pointer to memory from which data shall be copied from
  * @param count requested number of bytes to copy to #rb
@@ -627,28 +928,22 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 	enum rb_flags flags)
 {
-	size_t                w;   /* number of elements written to rb */
-	const unsigned char  *buf; /* buffer treated as unsigned char type */
+	size_t                nwritten; /* number of elements written to rb */
+	size_t                to_copy;  /* number of elements to copy to rb */
+	const unsigned char  *buf;      /* buffer treated as unsigned char type */
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
-	w = 0;
+	nwritten = 0;
 	buf = buffer;
 	trace(("i/count: %zu, flags: %u", count, flags));
 	lock(rb->wlock);
 
 	while (count) {
-		size_t  count_to_end;
-		size_t  count_to_write;
-		size_t  bytes_to_write;
-		/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
-
 		lock(rb->lock);
 
-		while (rb_space(rb) == 0 && rb->force_exit == 0) {
-			struct timespec ts;  /* timeout for pthread_cond_timedwait */
-			/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
-
-			if (RB_IS_GROWABLE(rb->flags)) {
+		while (rb_can_write(rb, count) == 0 && rb->force_exit == 0) {
+			/* no free space on the buffer, grow buffer if we are allowed */
+			if (RB_IS_GROWABLE(rb)) {
 				if (rb_grow(rb)) {
 					unlock(rb->lock);
 					return_errno(-1, ENOMEM);
@@ -656,65 +951,53 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 					continue;
 			}
 
-			/* buffer is full and no new data can be pushed, we wait  for
-			 * room or exit if 'rb' is non blocking */
-			if (w || rb->flags & rb_nonblock || flags & rb_dontwait) {
+			if (rb->flags & rb_nonblock || flags & rb_dontwait) {
+				/* non blocking operation requested, exit */
 				unlock(rb->lock);
 				unlock(rb->wlock);
 
-				if (w == 0) {
+				if (nwritten == 0)
 					/* set errno only when we did not read any bytes from rb
 					 * this is how standard posix read/send works */
-					errno = EAGAIN;
-					return -1;
-				}
+					return_errno(-1, EAGAIN);
 
 				trace(("i/ret %zu", w));
-				return w;
+				return nwritten;
 			}
 
-			clock_gettime(CLOCK_REALTIME, &ts);
-			ts.tv_sec += 5;
-
-			/* This happens only after calling rb_stop()
-			 *
-			 * on some very rare occasions it is possible that signal won't
-			 * reach out rb->wait_room conditional variable. This shouldn't
-			 * happen, but yet it does. Such behavior may cause deadlock.
-			 * To prevent deadlock we wake this thread every now and then to
-			 * make sure program is running. When everything works ok, this
-			 * has marginal impact on performance and when things go south,
-			 * instead of deadlocking we stall execution for maximum 5
-			 * seconds.
-			 *
-			 * TODO: look into this and try to make proper fix */
-			pthread_cond_timedwait(&rb->wait_room, &rb->lock, &ts);
+			/* wait for buffer to free some space */
+			rb_cond_wait(&rb->wait_room, &rb->lock);
 		}
 
-		if (rb->force_exit == 1) {
+		if (rb->force_exit) {
 			/* ring buffer is going down operations on buffer are not allowed */
 			unlock(rb->lock);
 			unlock(rb->wlock);
 			trace(("i/force exit"));
-			errno = ECANCELED;
-			return -1;
+			return_errno(-1, ECANCELED);
 		}
 
-		/* Count might be too large to store it in one burst, we
-		 * calculate how many elements can we store before needing to
-		 * overlap memory */
-		count_to_end = rb_space_end(rb);
-		count_to_write = count > count_to_end ? count_to_end : count;
-		bytes_to_write = count_to_write * rb->object_size;
+		/* copy as much as we can to ring buffer */
+		if (RB_IS_DYNAMIC(rb)) {
+			/* in dynamic mode, we can only write all or nothing, and
+			 * at this point we know there is enough space in #rb */
+			if (rb_dynamic_write_count(rb, count)) {
+				unlock(rb->lock);
+				unlock(rb->wlock);
+				return_errno(-1, EMSGSIZE);
+			}
+			rb_copy_to(rb, buffer, count);
+			nwritten += count;
+			count -= count;
+		} else {
+			to_copy = MIN(count, (size_t)rb_space(rb));
 
-		memcpy(rb->buffer + rb->head * rb->object_size, buf, bytes_to_write);
-		buf += bytes_to_write;
+			rb_copy_to(rb, buf, to_copy);
 
-		/* Adjust pointers and counts for next write */
-		rb->head += count_to_write;
-		rb->head &= rb->count - 1;
-		w += count_to_write;
-		count -= count_to_write;
+			buf += to_copy * rb->object_size;
+			count -= to_copy;
+			nwritten += to_copy;
+		}
 
 		/* Signal any threads that waits for data to read */
 		pthread_cond_signal(&rb->wait_data);
@@ -723,7 +1006,7 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 
 	unlock(rb->wlock);
 	trace(("i/ret %zu", w));
-	return w;
+	return nwritten;
 }
 #endif
 
@@ -734,6 +1017,9 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
  * store as many as it can, and will return count of objects stored into
  * ring buffer. If buffer is full, function returns -1 and EAGAIN error.
  *
+ * If #rb is configured with #rb_dynamic it will make sure that whole #buffer
+ * is copied to #rb or else error is returned.
+ *
  * @param rb ring buffer object
  * @param buffer location of data to put into rb
  * @param count number of elements to put on the rb
@@ -741,14 +1027,16 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
  *
  * @return On success function will return number of bytes copied to #buffer
  * @return On error -1 is returned
+ *
  * @exception EAGAIN ring buffer is full, cannot copy anything to it
+ * @exception EMSGSIZE #rb is dynamic, and #count is bigger than it's
+ *            described by #rb->object_size
+ * @exception ENOBUFS #rb is dynamic, but there is not enough space to
+ *            copy whole #buffer onto #rb
  * ========================================================================== */
 long rb_sends(struct rb *rb, const void *buffer, size_t count, enum rb_flags flags)
 {
-	size_t                rbspace;  /* space left in rb */
-	size_t                spce;     /* space left in rb until overlap */
-	size_t                objsize;  /* size of a single element in rb */
-	const unsigned char*  buf;      /* buffer treated as unsigned char */
+	size_t  rbspace;     /* space left in rb */
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 	(void)flags;
@@ -760,7 +1048,7 @@ long rb_sends(struct rb *rb, const void *buffer, size_t count, enum rb_flags fla
 	if (count == 0)
 		return 0;
 
-	if (!RB_IS_GROWABLE(rb->flags) && rb_space(rb) == 0)
+	if (!RB_IS_GROWABLE(rb) && rb_space(rb) == 0)
 		return_errno(-1, EAGAIN);
 
 	if (count > (size_t)LONG_MAX)
@@ -768,33 +1056,24 @@ long rb_sends(struct rb *rb, const void *buffer, size_t count, enum rb_flags fla
 		 * users count to acceptable value */
 		count = LONG_MAX;
 
-	while (count > (rbspace = rb_space(rb))) {
+	while ((count + rb_dynamic_len_size(rb)) > (rbspace = rb_space(rb))) {
 		/* Caller wants to store more data than there is space available */
-		if (RB_IS_GROWABLE(rb->flags)) {
+		if (RB_IS_GROWABLE(rb)) {
 			if (rb_grow(rb))
 				return_errno(-1, ENOMEM);
 		} else {
+			if (RB_IS_DYNAMIC(rb))
+				return_errno(-1, ENOBUFS);
 			count = rbspace;
 		}
 	}
 
-	objsize = rb->object_size;
-	spce = rb_space_end(rb);
-	buf = buffer;
+	if (!RB_IS_DYNAMIC(rb))
+		return rb_copy_to(rb, buffer, count);
 
-	if (count > spce) {
-		/* Memory overlaps, copy data in two turns */
-		memcpy(rb->buffer + rb->head * objsize, buf, spce * objsize);
-		memcpy(rb->buffer, buf + spce * objsize, (count - spce) * objsize);
-		rb->head = count - spce;
-	} else {
-		/* Memory doesn't overlap, good, we can do copying in one go */
-		memcpy(rb->buffer + rb->head * objsize, buf, count * objsize);
-		rb->head += count;
-		rb->head &= rb->count - 1;
-	}
-
-	return count;
+	if (rb_dynamic_write_count(rb, count))
+		return -1;
+	return rb_copy_to(rb, buffer, count);
 }
 
 /** =========================================================================
@@ -1050,4 +1329,25 @@ long rb_space(struct rb *rb)
 	VALID(EINVAL, rb->buffer);
 
 	return (rb->tail - (rb->head + 1)) & (rb->count - 1);
+}
+
+/** =========================================================================
+ * Peek at size of next message in the #rb. This only makes sense when #rb
+ * is dynamic
+ *
+ * @param rb ring buffer object
+ *
+ * @return size of next message in the #rb
+ * @return -1 on error
+ *
+ * @exception EINVAL #rb is NULL, or #rb is not #rb_dynamic
+ * ========================================================================== */
+long rb_peek_size(struct rb *rb)
+{
+	VALID(EINVAL, rb);
+	VALID(EINVAL, RB_IS_DYNAMIC(rb));
+
+	if (rb_count(rb) == 0)
+		return 0;
+	return rb_dynamic_read_count(rb, rb_peek);
 }
