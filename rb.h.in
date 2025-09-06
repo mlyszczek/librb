@@ -87,7 +87,7 @@ struct rb
 	pthread_mutex_t  wlock;       /* global lock for writing to rb */
 	sem_t            read_sem;    /* semaphore for read signaling */
 	sem_t            write_sem;   /* semaphore for write signaling */
-	atomic_int       force_exit;  /* if set, library will stop all operations */
+	atomic_int       force_exit;  /* holds reason for stopping functions */
 #endif
 };
 
@@ -100,6 +100,13 @@ long rb_write(struct rb *rb, const void *buffer, size_t count);
 long rb_send(struct rb *rb, const void *buffer, size_t count,
 	enum rb_flags flags);
 long rb_peek_size(struct rb *rb);
+
+long rb_read_claim(struct rb *rb, void **buffer, size_t *count,
+	size_t *object_size, enum rb_flags flags);
+long rb_read_commit(struct rb *rb, size_t count);
+long rb_write_claim(struct rb *rb, void **buffer, size_t *count,
+	size_t *object_size, enum rb_flags flags);
+long rb_write_commit(struct rb *rb, size_t count);
 
 int rb_clear(struct rb *rb, int clear);
 int rb_destroy(struct rb *rb);

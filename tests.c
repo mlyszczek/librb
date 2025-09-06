@@ -20,6 +20,7 @@ Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
 #include <time.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <sys/param.h>
 
 #if ENABLE_THREADS
 #   include <sys/types.h>
@@ -35,6 +36,12 @@ Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
 #include "mtest.h"
 #include "rb.h"
 
+#define READ_TYPE_NORMAL 0
+#define READ_TYPE_CLAIM 1
+#define WRITE_TYPE_NORMAL 0
+#define WRITE_TYPE_CLAIM 2
+#define READ_TYPE(T) (T & 1)
+#define WRITE_TYPE(T) ((T & 2) >> 1)
 struct tdata
 {
 	struct rb *rb;
@@ -45,21 +52,17 @@ struct tdata
 	size_t buflen;
 	int test_type;
 	int num_msgs;
+	int rw_type;
 	atomic_int wr_nmsgs;
 	atomic_int rd_nmsgs;
-};
-
-struct multi_data
-{
-	struct rb *rb;
-	int fd;
-	int objsize;
 };
 
 static unsigned t_rblen;
 static unsigned t_readlen;
 static unsigned t_writelen;
 static unsigned t_objsize;
+static int t_test_type;
+static int t_growable;
 
 static int t_nprod;
 static int t_ncons;
@@ -73,6 +76,47 @@ mt_defs();
 #if ENABLE_THREADS
 static pthread_mutex_t multi_mutex;
 static pthread_mutex_t multi_mutex_count;
+
+static long test_rb_read(struct rb *rb, void *buf, size_t count, int flags, int type)
+{
+	size_t rb_count;
+	size_t rb_objsize;
+	void *rb_buf;
+	size_t to_copy;
+
+	if (READ_TYPE(type) == READ_TYPE_NORMAL)
+		return rb_recv(rb, buf, count, flags);
+
+	if (rb_read_claim(rb, &rb_buf, &rb_count, &rb_objsize, flags))
+		return -1;
+
+	to_copy = MIN(rb_count, count);
+	memcpy(buf, rb_buf, to_copy * rb_objsize);
+
+	rb_read_commit(rb, to_copy);
+	return to_copy;
+}
+
+static long test_rb_write(struct rb *rb, const void *buf, size_t count,
+	int flags, int type)
+{
+	size_t rb_count;
+	size_t rb_objsize;
+	void *rb_buf;
+	size_t to_copy;
+
+	if (WRITE_TYPE(type) == WRITE_TYPE_NORMAL)
+		return rb_send(rb, buf, count, flags);
+
+	if (rb_write_claim(rb, &rb_buf, &rb_count, &rb_objsize, flags))
+		return -1;
+
+	to_copy = MIN(rb_count, count);
+	memcpy(rb_buf, buf, to_copy * rb_objsize);
+
+	rb_write_commit(rb, to_copy);
+	return to_copy;
+}
 
 static void *dynamic_consumer(void *arg)
 {
@@ -130,11 +174,16 @@ static void *consumer(void *arg)
 {
 	struct tdata *data = arg;
 	size_t r = 0;
+	long nread = 0;
 
 	while (r != data->buflen) {
 		size_t left = data->buflen - r;
 		left = left < data->len ? left : data->len;
-		r += rb_read(data->rb, data->data + r * data->objsize, left);
+		nread = test_rb_read(data->rb, data->data + r * data->objsize, 
+			left, 0, data->test_type);
+		if (nread == -1 && errno == EAGAIN)
+			continue;
+		r += nread;
 	}
 
 	return data;
@@ -149,7 +198,8 @@ static void *producer(void *arg)
 	{
 		size_t left = data->buflen - w;
 		left = left < data->len ? left : data->len;
-		w += rb_write(data->rb, data->data + w * data->objsize, left);
+		w += test_rb_write(data->rb, data->data + w * data->objsize,
+			left, 0, data->test_type);
 	}
 
 	return data;
@@ -157,7 +207,7 @@ static void *producer(void *arg)
 
 static void *multi_producer(void *arg)
 {
-	struct multi_data *d = arg;
+	struct tdata *d = arg;
 	struct rb *rb = d->rb;
 	unsigned int index;
 
@@ -180,7 +230,7 @@ static void *multi_producer(void *arg)
 
 static void *multi_consumer(void *arg)
 {
-	struct multi_data *d = arg;
+	struct tdata *d = arg;
 	struct rb *rb = d->rb;
 	unsigned int index;
 
@@ -196,9 +246,13 @@ static void *multi_consumer(void *arg)
 		} else
 			ret = rb_read(rb, &index, 1);
 
-		if (ret == -1)
-			/* force exit received */
-			return NULL;
+		if (ret == -1) {
+			if (errno == ECANCELED)
+				/* force exit received */
+				return NULL;
+			else
+				continue;
+		}
 
 		overflow = index >= rb_array_size(data);
 
@@ -246,9 +300,13 @@ static void multi_producers_consumers(void)
 {
 	pthread_t *cons;
 	pthread_t *prod;
-	struct multi_data tdata;
+	struct tdata tdata;
 	int i, r;
 	unsigned count;
+	int flags = rb_multithread;
+
+	if (t_growable)
+		flags |= rb_growable;
 
 	multi_index = 0;
 	multi_index_count = 0;
@@ -257,9 +315,10 @@ static void multi_producers_consumers(void)
 	cons = malloc(t_ncons * sizeof(*cons));
 	prod = malloc(t_nprod * sizeof(*prod));
 
-	tdata.rb = rb_new(8, sizeof(unsigned int), rb_multithread);
+	tdata.rb = rb_new(8, sizeof(unsigned int), flags);
 	tdata.fd = -1;
 	tdata.objsize = sizeof(unsigned int);
+	tdata.test_type = t_test_type;
 
 	pthread_mutex_init(&multi_mutex, NULL);
 	pthread_mutex_init(&multi_mutex_count, NULL);
@@ -280,7 +339,6 @@ static void multi_producers_consumers(void)
 		/* while waiting, we randomly peek into rb, and to make sure,
 		 * peeking won't make a difference */
 		rb_recv(tdata.rb, buf, rand() % 16, rb_peek);
-		//usleep(5000);
 	}
 
 	rb_stop(tdata.rb);
@@ -312,6 +370,7 @@ static void multi_thread(void)
 {
 	pthread_t cons;
 	pthread_t prod;
+	int flags = rb_multithread;
 
 	size_t buflen = t_readlen > t_writelen ? t_readlen : t_writelen;
 	unsigned char *send_buf = malloc(t_objsize * buflen);
@@ -330,21 +389,24 @@ static void multi_thread(void)
 		recv_buf[i] = 0;
 	}
 
-	rb = rb_new(t_rblen, t_objsize, rb_multithread);
+	if (t_growable)
+		flags |= rb_growable;
+
+	rb = rb_new(t_rblen, t_objsize, flags);
 
 	proddata.data = send_buf;
 	proddata.len = t_writelen;
 	proddata.objsize = t_objsize;
 	proddata.rb = rb;
 	proddata.buflen = buflen;
-	proddata.fd = -1;
+	proddata.test_type = t_test_type;
 
 	consdata.data = recv_buf;
 	consdata.len = t_readlen;
 	consdata.objsize = t_objsize;
 	consdata.rb = rb;
 	consdata.buflen = buflen;
-	consdata.fd = -1;
+	consdata.test_type = t_test_type;
 
 	pthread_create(&cons, NULL, consumer, &consdata);
 	pthread_create(&prod, NULL, producer, &proddata);
@@ -359,8 +421,6 @@ static void multi_thread(void)
 		printf("[%lu] a = %lu, b = %d, c = %d, d = %d\n",
 			c, buflen, t_rblen, t_readlen, t_writelen);
 
-	close(proddata.fd);
-	close(consdata.fd);
 	rb_destroy(rb);
 	free(send_buf);
 	free(recv_buf);
@@ -499,6 +559,7 @@ static void single_thread(void)
 	size_t buflen = t_readlen > t_writelen ? t_readlen : t_writelen;
 	unsigned long writelen = t_writelen;
 	unsigned long readlen = t_readlen;
+	int flags = 0;
 
 	unsigned char *send_buf = malloc(t_objsize * buflen);
 	unsigned char *recv_buf = malloc(t_objsize * buflen);
@@ -515,7 +576,9 @@ static void single_thread(void)
 		recv_buf[i] = 0;
 	}
 
-	rb = rb_new(t_rblen, t_objsize, 0);
+	if (t_growable)
+		flags = rb_growable;
+	rb = rb_new(t_rblen, t_objsize, flags);
 
 	written = 0;
 	read = 0;
@@ -999,14 +1062,115 @@ static void mt_read_more_than_is_on_buffer(void)
 	rb_destroy(rb);
 }
 
+static void *write_dontwait_thread(void *arg)
+{
+	char buf[8] = { 0 };
+	/* will block, rb_stop() will wake it up, and will return 3 */
+	mt_fail(rb_write(arg, buf, 8) == 3);
+	/* will not block, must exit with canceled without data written */
+	mt_ferr(rb_write(arg, buf, 8), ECANCELED);
+	return NULL;
+}
+static void write_dontwait(void)
+{
+	char buf[4];
+	struct rb *rb = rb_new(4, 1, rb_multithread);
+	pthread_t blocked_write;
+	
+	pthread_create(&blocked_write, NULL, write_dontwait_thread, rb);
+	usleep(1000);
+	/* must not block, and return immediately */
+	mt_ferr(rb_send(rb, buf, 4, rb_dontwait), EAGAIN);
+	rb_stop(rb);
+	pthread_join(blocked_write, NULL);
+	rb_destroy(rb);
+}
+
+static void *read_dontwait_thread(void *arg)
+{
+	char buf[8];
+	/* will block, rb_stop() will wake it up, and will return 2 */
+	mt_fail(rb_read(arg, buf, 8) == 2);
+	/* will not block, must exit with canceled without data written */
+	mt_ferr(rb_read(arg, buf, 8), ECANCELED);
+	return NULL;
+}
+static void read_dontwait(void)
+{
+	char buf[4];
+	struct rb *rb = rb_new(4, 1, rb_multithread);
+	pthread_t blocked_read;
+
+	mt_fail(rb_write(rb, buf, 2) == 2);
+	pthread_create(&blocked_read, NULL, read_dontwait_thread, rb);
+	usleep(1000);
+	/* must not block, and return immediately */
+	mt_ferr(rb_recv(rb, buf, 4, rb_dontwait), EAGAIN);
+	rb_stop(rb);
+	pthread_join(blocked_read, NULL);
+	rb_destroy(rb);
+}
+
+static void dynamic_invalid_size(void)
+{
+	struct rb rb;
+	char buf[4];
+
+	mt_ferr(rb_init(&rb, buf, 4, 3, rb_dynamic), EINVAL);
+	mt_ferr(rb_init(&rb, buf, 4, 5, rb_dynamic), EINVAL);
+	mt_ferr(rb_init(&rb, buf, 4, 6, rb_dynamic), EINVAL);
+	mt_ferr(rb_init(&rb, buf, 4, 7, rb_dynamic), EINVAL);
+	mt_ferr(rb_init(&rb, buf, 4, 9, rb_dynamic), EINVAL);
+	mt_ferr(rb_init(&rb, buf, 4, 10, rb_dynamic), EINVAL);
+}
+
+static void recv_send_zero(void)
+{
+	struct rb *rb;
+	char buf[4];
+
+	rb = rb_new(4, 1, 0);
+	mt_fail(rb_read(rb, buf, 0) == 0);
+	mt_fail(rb_write(rb, buf, 0) == 0);
+
+	rb_destroy(rb);
+}
+
+static void dynamic_read_write_invalid_count(void)
+{
+	struct rb *rb;
+	struct rb rbs;
+	char buf[512] = { 0 };
+	char mem[512] = { 0 };
+
+	rb = rb_new(1024, 1, rb_dynamic);
+	mt_fail(rb_write(rb, buf, 16) == 16);
+	mt_ferr(rb_read(rb, buf, 15), ENOBUFS);
+	mt_ferr(rb_write(rb, buf, 256), EMSGSIZE);
+	mt_ferr(rb_write(rb, buf, 257), EMSGSIZE);
+
+	rb_destroy(rb);
+
+	rb_init(&rbs, mem, 2 * (UINT16_MAX + 1), 2, rb_dynamic);
+	mt_ferr(rb_write(&rbs, buf, UINT16_MAX + 1), EMSGSIZE);
+	mt_ferr(rb_write(&rbs, buf, UINT16_MAX + 2), EMSGSIZE);
+	rb_cleanup(&rbs);
+
+	/* don't know who's gonna create buffer this big, but... We are thorough */
+	rb_init(&rbs, mem, 2ull * (UINT32_MAX + 1ull), 4, rb_dynamic);
+	mt_ferr(rb_write(&rbs, buf, UINT32_MAX + 1ull), EMSGSIZE);
+	mt_ferr(rb_write(&rbs, buf, UINT32_MAX + 2ull), EMSGSIZE);
+	rb_cleanup(&rbs);
+}
+
 int main(void)
 {
 	srand(time(NULL));
 	srand(0);
-	unsigned int t_rblen_max = 1024;
-	unsigned int t_readlen_max = 1024;
-	unsigned int t_writelen_max = 1024;
-	unsigned int t_objsize_max = 1024;
+	unsigned int t_rblen_max = 256;
+	unsigned int t_readlen_max = 256;
+	unsigned int t_writelen_max = 256;
+	unsigned int t_objsize_max = 256;
 
 	int t_nprod_max = 16;
 	int t_ncons_max = 16;
@@ -1032,30 +1196,32 @@ int main(void)
 	} }
 
 #if ENABLE_THREADS
+	for (t_growable = 0; t_growable <= 1; t_growable++) {
+	for (t_test_type = 0; t_test_type <= 3; t_test_type++) {
 	for (t_ncons = 1; t_ncons <= t_ncons_max; t_ncons++) {
 	for (t_nprod = 1; t_nprod <= t_nprod_max; t_nprod++) {
-		sprintf(name, "multi_producers_consumers producers: %d "
-			"consumers %d", t_nprod, t_ncons);
+		sprintf(name, "multi_producers_consumers growable %d type %d producers: %d "
+			"consumers %d", t_growable, t_test_type, t_nprod, t_ncons);
 		mt_run_named(multi_producers_consumers, name);
-	} }
+	} } } }
 #endif
 
+	for (t_growable = 0; t_growable <= 1; t_growable++) {
+	for (t_test_type = 0; t_test_type <= 3; t_test_type++) {
 	for (t_rblen = 2; t_rblen <= t_rblen_max; t_rblen *= 2) {
 	for (t_readlen = 2; t_readlen <= t_readlen_max; t_readlen *= 2) {
 	for (t_writelen = 2; t_writelen <= t_writelen_max; t_writelen *= 2) {
-		for (t_objsize = 2; t_objsize <= t_objsize_max; t_objsize *= 2) {
+	for (t_objsize = 2; t_objsize <= t_objsize_max; t_objsize *= 2) {
 #if ENABLE_THREADS
-			sprintf(name, "multi_thread with buffer %3d, %3d, %3d, %3d",
-				t_rblen, t_readlen, t_writelen, t_objsize);
+			sprintf(name, "multi_thread with grow %d type %d buffer %3d, %3d, %3d, %3d",
+				t_growable, t_test_type, t_rblen, t_readlen, t_writelen, t_objsize);
 			mt_run_named(multi_thread, name);
 #endif
 
-			sprintf(name, "single_thread with buffer %3d, %3d, %3d, %3d",
-				t_rblen, t_readlen, t_writelen, t_objsize);
+			sprintf(name, "single_thread with grow %d type %d buffer %3d, %3d, %3d, %3d",
+				t_growable, t_test_type, t_rblen, t_readlen, t_writelen, t_objsize);
 			mt_run_named(single_thread, name);
-		}
-		t_objsize = 1;
-	} } }
+	} } } } } }
 
 	mt_run(peeking);
 	mt_run(bad_count_value);
@@ -1075,11 +1241,16 @@ int main(void)
 	mt_run(round_count);
 	mt_run(dynamic_simple);
 	mt_run(dynamic_peek_size);
+	mt_run(dynamic_invalid_size);
+	mt_run(dynamic_read_write_invalid_count);
+	mt_run(recv_send_zero);
 
 #if ENABLE_THREADS
 	mt_run(multithread_eagain);
 	mt_run(mt_read_more_than_is_on_buffer);
 	mt_run(mt_send_big_data_multi_receiver);
+	mt_run(write_dontwait);
+	mt_run(read_dontwait);
 #endif
 
 	mt_return();

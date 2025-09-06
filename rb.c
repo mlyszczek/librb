@@ -24,10 +24,7 @@
 #endif /* HAVE_ASSERT_H */
 
 #if ENABLE_THREADS
-#   include <fcntl.h>
 #   include <pthread.h>
-#   include <sys/socket.h>
-#   include <sys/time.h>
 #endif /* ENABLE_THREADS */
 
 #undef TRACE_LOG
@@ -40,14 +37,14 @@
 
 	pthread_mutex_t trace_lock = PTHREAD_MUTEX_INITIALIZER;
 	struct rb *trace_rb;
-#   define trace(...) do {                                                     \
-		pthread_mutex_lock(&trace_lock);                                       \
-		fprintf(stderr, "%ld [%s:%-5d%-20s%-6ld][rb h:%-6zu t:%-6zu c:%6zu,%6zu/%-6zu] ",                       \
-			clock(), __FILE__, __LINE__, __func__, syscall(SYS_gettid),                 \
-			trace_rb->head, trace_rb->tail, rb_space(trace_rb), rb_count(trace_rb), trace_rb->count);                                    \
-		fprintf(stderr, __VA_ARGS__);                                                             \
-		fprintf(stderr, "\n");                                                          \
-		pthread_mutex_unlock(&trace_lock);                                     \
+#   define trace(...) do { \
+		pthread_mutex_lock(&trace_lock); \
+		fprintf(stderr, "%ld [%s:%-5d%-20s%-6ld][rb h:%-6zu t:%-6zu c:%6zu,%6zu/%-6zu] ", \
+			clock(), __FILE__, __LINE__, __func__, syscall(SYS_gettid), \
+			trace_rb->head, trace_rb->tail, rb_space(trace_rb), rb_count(trace_rb), trace_rb->count); \
+		fprintf(stderr, __VA_ARGS__); \
+		fprintf(stderr, "\n"); \
+		pthread_mutex_unlock(&trace_lock); \
 	} while (0)
 #   define trace_init(RB) { trace_rb = RB; }
 #else
@@ -64,6 +61,7 @@
  *               ░▀▀░░▀▀▀░▀▀▀░▀▀▀░▀░▀░▀░▀░▀░▀░░▀░░▀▀▀░▀▀▀░▀░▀░▀▀▀
  * ========================================================================== */
 #define return_errno(R, E) do { errno = E; return R; } while (0)
+#define trylock(L) (trace("try lock " #L), pthread_mutex_trylock(&L))
 #define lock(L) do { pthread_mutex_lock(&L); trace("lock " #L); } while (0)
 #define unlock(L) do { pthread_mutex_unlock(&L); trace("unlock " #L); } while (0)
 #define RB_IS_GROWABLE(rb) (rb->flags & rb_growable)
@@ -104,6 +102,29 @@ static void rb_make_shallow_copy(const struct rb *rb, struct rb *dummy)
 }
 
 /** =========================================================================
+ * If #rb is blocking, lock mutex and wait for it until it really locks.
+ * For non blocking operations function will only try to lock mutex, and
+ * if it fails, it will exit with -1/EAGAIN error
+ *
+ * @param rb ring buffer object to lock
+ * @param flags operation flags
+ * @param mutex mutex to try and lock
+ *
+ * @return 0 #mutex has been locked
+ * @return -1 #mutex has not been locked
+ * ========================================================================== */
+static int rb_trylock(struct rb *rb, int flags, pthread_mutex_t *mutex)
+{
+	trace("try lock %s", mutex == &rb->wlock ? "write" : "read");
+	if (RB_IS_BLOCKING(rb, flags))
+		pthread_mutex_lock(mutex);
+	else
+		if (pthread_mutex_trylock(mutex))
+			return_errno(-1, EAGAIN);
+	return 0;
+}
+
+/** =========================================================================
  * Post to a semaphore, but do not exceed value of 1.
  *
  * It's normal for write operation to do sem_post() multiple times before
@@ -123,7 +144,7 @@ static void rb_sem_post(sem_t *sem)
 
 /** =========================================================================
  * Calculates number of elements in ring buffer until the end of buffer
- * memory. If elements don't overlap memory, function acts like rb_count
+ * memory. If elements don't wrap, function acts like rb_count
  *
  * @param rb ring buffer object
  *
@@ -143,7 +164,7 @@ static size_t rb_count_end(const struct rb *rb)
 
 /** =========================================================================
  * Calculates how many elements can be pushed into ring buffer
- * without overlapping memory
+ * without wrapping memory
  *
  * @param rb ring buffer object
  *
@@ -449,6 +470,24 @@ error:
 }
 
 /** =========================================================================
+ * Increase #rb->tail pointer by #count
+ * ========================================================================== */
+static void rb_increase_tail(struct rb *rb, size_t count)
+{
+	size_t          cnte;     /* number of elements in rb until wrap */
+	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+	cnte = rb_count_end(rb);
+
+	if (count > cnte)
+		rb->tail = count - cnte;
+	else
+		rb->tail += count;
+
+	rb->tail &= rb->count - 1;
+}
+
+/** =========================================================================
  * Copy data from #buffer onto #rb ring buffer. This function does not
  * perform any checks, so so you must make sure #count is not bigger than
  * #buffer or current #rb count. It will handle memory wrapping.
@@ -462,7 +501,7 @@ error:
  * ========================================================================== */
 static long rb_copy_from(struct rb *rb, void *buffer, size_t count, int peek)
 {
-	size_t          cnte;     /* number of elements in rb until overlap */
+	size_t          cnte;     /* number of elements in rb until wrap */
 	size_t          objsize;  /* size, in bytes, of single object in rb */
 	unsigned char*  buf;      /* buffer treated as unsigned char type */
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
@@ -473,14 +512,13 @@ static long rb_copy_from(struct rb *rb, void *buffer, size_t count, int peek)
 
 	if (count > cnte) {
 		/* Memory wraps, copy data in two turns */
-		memcpy(buf, rb->buffer + rb->tail * objsize, objsize * cnte);
+		memcpy(buf, rb->buffer + rb->tail * objsize, cnte * objsize);
 		memcpy(buf + cnte * objsize, rb->buffer, (count - cnte) * objsize);
-		rb->tail = peek ? rb->tail : count - cnte;
-	} else {
+	} else
 		memcpy(buf, rb->buffer + rb->tail * objsize, count * objsize);
-		rb->tail += peek ? 0 : count;
-		rb->tail &= rb->count - 1;
-	}
+
+	if (!peek)
+		rb_increase_tail(rb, count);
 
 	return count;
 }
@@ -568,9 +606,6 @@ static long rb_recvs(struct rb *rb, void *buffer, size_t count, enum rb_flags fl
 	VALID(EINVAL, rb);
 	VALID(EINVAL, buffer);
 	VALID(EINVAL, rb->buffer);
-
-	if (count == 0)
-		return 0;
 
 	if (rb_count(rb) == 0)
 		return_errno(-1, EAGAIN);
@@ -695,13 +730,16 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 	long             nread;    /* number of elements read */
 	size_t           to_copy;  /* number of elements to copy from rb */
 	unsigned char   *buf;      /* buffer treated as unsigned char type */
+	int              e;        /* errno cache */
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 	nread = 0;
 	buf = buffer;
 
-	lock(rb->rlock);
+	if (rb_trylock(rb, flags, &rb->rlock))
+		return -1;
 	trace("count: %zu, flags: %u", count, flags);
+
 	while (count) {
 		if (rb_wait_for_data(rb, count, nread, flags)) {
 			unlock(rb->rlock);
@@ -709,11 +747,12 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 			return nread ? nread : -1;
 		}
 
-		if (rb->force_exit) {
+		if ((e = rb->force_exit)) {
 			/* ring buffer is going down operations on buffer are not allowed */
 			unlock(rb->rlock);
-			trace("force exit");
-			return_errno(-1, ECANCELED);
+			trace("force exit %d nread %ld", e, nread);
+			errno = e;
+			return nread ? nread : -1;
 		}
 
 		/* read as much as we can from ring buffer */
@@ -750,6 +789,9 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
  *
  * If multi-threading is enabled, and operation is blocking, function will
  * block until at least 1 element has been read.
+ *
+ * If #rb is growable and write thread wants to grow #rb, it's possible
+ * for #rb_read() to return early with -1/EAGAIN.
  *
  * @param rb ring buffer object
  * @param buffer location where data from rb will be stored
@@ -794,6 +836,7 @@ long rb_read(struct rb *rb, void *buffer, size_t count)
  * ========================================================================== */
 long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 {
+	int e;
 	VALID(EINVAL, rb);
 	VALID(EINVAL, buffer);
 	VALID(EINVAL, rb->buffer);
@@ -808,8 +851,8 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 	if ((rb->flags & rb_multithread) == 0)
 		return rb_recvs(rb, buffer, count, flags);
 
-	if (rb->force_exit)
-		return_errno(-1, ECANCELED);
+	if ((e = rb->force_exit))
+		return_errno(-1, e);
 
 	if (flags & rb_peek) {
 		/* when call is just peeking, we can simply call function for
@@ -830,6 +873,24 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 }
 
 /** =========================================================================
+ * Increase #rb->head pointer by #count
+ * ========================================================================== */
+static void rb_increase_head(struct rb *rb, size_t count)
+{
+	size_t spce; /* space left in rb until wrap */
+	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+	spce = rb_space_end(rb);
+
+	if (count > spce)
+		rb->head = count - spce;
+	else
+		rb->head += count;
+
+	rb->head &= rb->count - 1;
+}
+
+/** =========================================================================
  * Copy #buffer onto #rb ring buffer. This function does not perform any
  * checks, so you must make sure #count is not bigger than free space on
  * #rb buffer. It will handle memory wrapping.
@@ -842,7 +903,7 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
  * ========================================================================== */
 static size_t rb_copy_to(struct rb *rb, const void *buffer, size_t count)
 {
-	size_t                spce;     /* space left in rb until overlap */
+	size_t                spce;     /* space left in rb until wrap */
 	size_t                objsize;  /* size of a single element in rb */
 	const unsigned char*  buf;      /* buffer treated as unsigned char */
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
@@ -855,13 +916,10 @@ static size_t rb_copy_to(struct rb *rb, const void *buffer, size_t count)
 		/* Memory wraps, copy data in two turns */
 		memcpy(rb->buffer + rb->head * objsize, buf, spce * objsize);
 		memcpy(rb->buffer, buf + spce * objsize, (count - spce) * objsize);
-		rb->head = count - spce;
-	} else {
+	} else
 		memcpy(rb->buffer + rb->head * objsize, buf, count * objsize);
-		rb->head += count;
-		rb->head &= rb->count - 1;
-	}
 
+	rb_increase_head(rb, count);
 	return count;
 }
 
@@ -924,7 +982,7 @@ static int rb_dynamic_write_count(struct rb *rb, size_t count)
 
 	index = rb->object_size;
 
-	if (count > max[index])
+	if (count >= max[index])
 		return_errno(-1, EMSGSIZE);
 
 	write[index](rb, count);
@@ -1013,7 +1071,14 @@ static int rb_wait_for_space(struct rb *rb, size_t count, enum rb_flags flags)
 		/* no free space on the buffer, grow buffer if we are allowed */
 		if (RB_IS_GROWABLE(rb)) {
 			int ret;
+
+			rb->force_exit = EAGAIN;
+			while (pthread_mutex_trylock(&rb->rlock))
+				rb_sem_post(&rb->read_sem);
 			ret = rb_grow(rb);
+			rb->force_exit = 0;
+			unlock(rb->rlock);
+
 			if (ret)
 				return_errno(-1, ENOMEM);
 			else
@@ -1069,7 +1134,9 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 	nwritten = 0;
 	buf = buffer;
 	trace("count: %zu, flags: %u", count, flags);
-	lock(rb->wlock);
+
+	if (rb_trylock(rb, flags, &rb->wlock))
+		return -1;
 
 	while (count) {
 		if (rb_wait_for_space(rb, count, flags)) {
@@ -1150,9 +1217,6 @@ static long rb_sends(struct rb *rb, const void *buffer, size_t count)
 	VALID(EINVAL, buffer);
 	VALID(EINVAL, rb->buffer);
 
-	if (count == 0)
-		return 0;
-
 	if (!RB_IS_GROWABLE(rb) && rb_space(rb) == 0)
 		return_errno(-1, EAGAIN);
 
@@ -1208,6 +1272,9 @@ long rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flag
 	VALID(EINVAL, buffer);
 	VALID(EINVAL, rb->buffer);
 
+	if (count == 0)
+		return 0;
+
 	if (count > (size_t)LONG_MAX)
 		count = LONG_MAX;
 
@@ -1215,15 +1282,12 @@ long rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flag
 	if ((rb->flags & rb_multithread) == 0)
 		return rb_sends(rb, buffer, count);
 
-	if (rb->force_exit)
+	if (rb->force_exit == ECANCELED)
 		return_errno(-1, ECANCELED);
 
 	return rb_sendt(rb, buffer, count, flags);
 #else
 	return rb_sends(rb, buffer, count);
-#endif
-}
-
 #endif
 }
 
@@ -1259,6 +1323,180 @@ long rb_write(struct rb *rb, const void *buffer, size_t count)
 }
 
 /** =========================================================================
+ * Claims ring buffer for writing.
+ *
+ * In return you will get pointer to a #buffer. You can directly write to it
+ * starting from offset 0. #count will tell you how big #buffer is. Do not
+ * even think about writing more elements than #count. If you are close to
+ * memory wrap, #count may be very small, fill the #buffer and next call will
+ * give you more memory.
+ *
+ * #object_size defines size of a single object that is held on ring buffer.
+ * You should write to a buffer in increments of #object_size bytes.
+ *
+ * You can specify #flags as with #rb_send()
+ *
+ * If multi-thread #rb is used, function will block like #rb_send until
+ * space is available on #rb. After function finishes, you will be the owner
+ * of #rb->wlock mutex, so no one will interfere with your writing.
+ *
+ * @note that #count does not describe #buffer size in bytes, but in "elements".
+ *       #buffer size in bytes is #count * #object_size
+ * @note remember to call #rb_write_commit() once you are done
+ *
+ * @param rb ring buffer object
+ * @param buffer location where data should be copied to
+ * @param count max number of elements that can be copied to #buffer
+ * @param object_size size of single object #rb holds (in bytes)
+ * @param flags operation flags
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+long rb_write_claim(struct rb *rb, void **buffer, size_t *count,
+	size_t *object_size, enum rb_flags flags)
+{
+	VALID(EINVAL, rb);
+	VALID(EINVAL, rb->buffer);
+	VALID(EINVAL, buffer);
+	VALID(EINVAL, count);
+	VALID(EINVAL, object_size);
+
+#if ENABLE_THREADS
+	if (rb->flags & rb_multithread) {
+		if (rb_trylock(rb, flags, &rb->wlock))
+			return -1;
+		if (rb_wait_for_space(rb, 1, flags))
+			return -1;
+	}
+#endif
+
+	trace("write claimed");
+	*count = rb_space_end(rb);
+	*object_size = RB_IS_DYNAMIC(rb) ? 1 : rb->object_size;
+	*buffer = rb->buffer + rb->head * *object_size;
+
+	return 0;
+}
+
+/** =========================================================================
+ * Commits data written to #rb in #rb_write_claim buffer. You just have to
+ * specify number of elements actually written to #rb in claim call.
+ *
+ * In multi-thread environment, this will release write mutex and threads
+ * blocked in read will be woken up. It's ok to pass 0 as #count.
+ *
+ * @param rb ring object to commit to
+ * @param count number of elements written to ring buffer after claiming it
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+long rb_write_commit(struct rb *rb, size_t count)
+{
+	VALID(EINVAL, rb);
+	VALID(EINVAL, rb->buffer);
+
+	rb_increase_head(rb, count);
+
+#if ENABLE_THREADS
+	if (rb->flags & rb_multithread) {
+		if (count)
+			rb_sem_post(&rb->read_sem);
+		unlock(rb->wlock);
+	}
+#endif
+
+	trace("write committed");
+	return 0;
+}
+
+/** =========================================================================
+ * Claims ring buffer for reading.
+ *
+ * In return you will get pointer to a #buffer. You can directly read from it
+ * starting at offset 0. #count will tell you how big #buffer is. Do not
+ * even think about reading more elements than #count. If you are close to
+ * memory wrap, #count may be very small, fully read the #buffer and next
+ * call will give you more memory to read.
+ *
+ * #object_size defines size of a single object that is held on ring buffer.
+ * You should read from a #buffer in increments of #object_size bytes.
+ *
+ * You can specify #flags as with #rb_recv()
+ *
+ * If multi-thread #rb is used, function will block like #rb_read until
+ * data is available on #rb. After function finishes, you will be the owner
+ * of #rb->rlock mutex, so no one will interfere with your reading.
+ *
+ * @note that #count does not describe #buffer size in bytes, but in "elements".
+ *       #buffer size in bytes is #count * #object_size
+ * @note remember to call #rb_read_commit() once you are done
+ *
+ * @param rb ring buffer object
+ * @param buffer location from where data can be read
+ * @param count max number of elements that can be read from #buffer
+ * @param object_size size of single object #rb holds (in bytes)
+ * @param flags operation flags
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+long rb_read_claim(struct rb *rb, void **buffer, size_t *count,
+	size_t *object_size, enum rb_flags flags)
+{
+	VALID(EINVAL, rb);
+	VALID(EINVAL, rb->buffer);
+	VALID(EINVAL, buffer);
+	VALID(EINVAL, count);
+	VALID(EINVAL, object_size);
+
+#if ENABLE_THREADS
+	if (rb->flags & rb_multithread) {
+		if (rb_trylock(rb, flags, &rb->rlock))
+			return -1;
+		if (rb_wait_for_data(rb, 1, 0, flags))
+			return -1;
+	}
+#endif
+
+	trace("read claimed");
+	*count = rb_count_end(rb);
+	*object_size = RB_IS_DYNAMIC(rb) ? 1 : rb->object_size;
+	*buffer = rb->buffer + rb->tail * *object_size;
+
+	return 0;
+}
+
+/** =========================================================================
+ * Commits data read from #rb in #rb_read_claim. You just have to
+ * specify number of elements actually read from #rb in claim call.
+ *
+ * In multi-thread environment, this will release read mutex and threads
+ * blocked in write will be woken up. It's ok to pass 0 as #count.
+ *
+ * @param rb ring object to commit to
+ * @param count number of elements read from ring buffer after claiming it
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+long rb_read_commit(struct rb *rb, size_t count)
+{
+	VALID(EINVAL, rb);
+	VALID(EINVAL, rb->buffer);
+
+	rb_increase_tail(rb, count);
+
+#if ENABLE_THREADS
+	if (rb->flags & rb_multithread) {
+		if (count)
+			rb_sem_post(&rb->write_sem);
+		unlock(rb->rlock);
+	}
+#endif
+
+	trace("read committed");
+	return 0;
+}
+
+/** =========================================================================
  * Clears all data in the buffer
  *
  * Normally function do quick clean - only sets head and tail variables to
@@ -1279,7 +1517,7 @@ int rb_clear(struct rb *rb, int clear)
 
 #if ENABLE_THREADS
 	if (rb->flags & rb_multithread)
-		lock(rb->lock);
+		lock(rb->rlock);
 #endif
 
 	if (clear)
@@ -1290,7 +1528,7 @@ int rb_clear(struct rb *rb, int clear)
 
 #if ENABLE_THREADS
 	if (rb->flags & rb_multithread)
-		unlock(rb->lock);
+		unlock(rb->rlock);
 #endif
 
 	return 0;
@@ -1318,7 +1556,7 @@ int rb_stop(struct rb *rb)
 #if ENABLE_THREADS
 	VALID(EINVAL, rb->flags & rb_multithread);
 
-	rb->force_exit = 1;
+	rb->force_exit = ECANCELED;
 
 	/* signal all conditional variables, #force_exit is set, so all
 	 * threads should just exit theirs rb_write/read functions. */
@@ -1389,24 +1627,26 @@ int rb_destroy(struct rb *rb)
 long rb_discard(struct rb *rb, size_t count)
 {
 	size_t rbcount;  /* number of elements in rb */
-	size_t cnte;     /* number of elements in rb until overlap */
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 	VALID(EINVAL, rb);
 	VALID(EINVAL, rb->buffer);
 
-	cnte = rb_count_end(rb);
-	rbcount = rb_count(rb);
+#if ENABLE_THREADS
+	if (rb->flags & rb_multithread)
+		if (pthread_mutex_trylock(&rb->rlock))
+			return_errno(-1, EAGAIN);
+#endif
 
-	if (count > rbcount)
+	if (count > (rbcount = rb_count(rb)))
 		count = rbcount;
 
-	if (count > cnte)
-		rb->tail = count - cnte;
-	else {
-		rb->tail += count;
-		rb->tail &= rb->count -1;
-	}
+	rb_increase_tail(rb, count);
+
+#if ENABLE_THREADS
+	if (rb->flags & rb_multithread)
+		unlock(rb->rlock);
+#endif
 
 	return (long)count;
 }
