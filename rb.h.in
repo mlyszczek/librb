@@ -7,10 +7,12 @@
 
 #define ENABLE_THREADS @ENABLE_THREADS@
 
+#include <stdatomic.h>
 #include <stddef.h>
 
 #if ENABLE_THREADS
 #   include <pthread.h>
+#   include <semaphore.h>
 #endif
 
 enum rb_flags
@@ -72,10 +74,10 @@ enum rb_flags
 
 struct rb
 {
-	size_t           head;        /* pointer to buffer's head */
-	size_t           tail;        /* pointer to buffer's tail */
-	size_t           count;       /* maximum number of elements in buffer */
-	size_t           object_size; /* size of a single object in buffer */
+	atomic_size_t    head;        /* pointer to buffer's head */
+	atomic_size_t    tail;        /* pointer to buffer's tail */
+	atomic_size_t    count;       /* maximum number of elements in buffer */
+	atomic_size_t    object_size; /* size of a single object in buffer */
 	enum rb_flags    flags;       /* flags used with buffer */
 	unsigned char   *buffer;      /* pointer to ring buffer in memory */
 
@@ -83,11 +85,9 @@ struct rb
 	pthread_mutex_t  lock;        /* mutex for concurrent access */
 	pthread_mutex_t  rlock;       /* global lock for reading from rb */
 	pthread_mutex_t  wlock;       /* global lock for writing to rb */
-	pthread_cond_t   wait_data;   /* ca, will block if buffer is empty */
-	pthread_cond_t   wait_room;   /* ca, will block if buffer is full */
-	pthread_t        stop_thread; /* thread to force thread to exit send/recv */
-	int              stopped_all; /* when set no threads are in send/recv */
-	int              force_exit;  /* if set, library will stop all operations */
+	sem_t            read_sem;    /* semaphore for read signaling */
+	sem_t            write_sem;   /* semaphore for write signaling */
+	atomic_int       force_exit;  /* if set, library will stop all operations */
 #endif
 };
 

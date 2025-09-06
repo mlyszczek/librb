@@ -55,7 +55,6 @@
 #   define trace_init(RB)
 #endif
 
-
 #include "rb.h"
 #include "valid.h"
 
@@ -65,8 +64,8 @@
  *               ░▀▀░░▀▀▀░▀▀▀░▀▀▀░▀░▀░▀░▀░▀░▀░░▀░░▀▀▀░▀▀▀░▀░▀░▀▀▀
  * ========================================================================== */
 #define return_errno(R, E) do { errno = E; return R; } while (0)
-#define lock(L) do { trace("i/lock " #L); pthread_mutex_lock(&L); } while (0)
-#define unlock(L) do { pthread_mutex_unlock(&L); trace("i/unlock " #L); } while (0)
+#define lock(L) do { pthread_mutex_lock(&L); trace("lock " #L); } while (0)
+#define unlock(L) do { pthread_mutex_unlock(&L); trace("unlock " #L); } while (0)
 #define RB_IS_GROWABLE(rb) (rb->flags & rb_growable)
 #define RB_IS_ROUNDABLE(rb) (rb->flags & rb_round_count)
 #define RB_IS_DYNAMIC(rb) (rb->flags & rb_dynamic)
@@ -78,6 +77,49 @@
  *                     ░█▀▀░█░█░█░█░█░░░░█░░░█░░█░█░█░█░▀▀█
  *                     ░▀░░░▀▀▀░▀░▀░▀▀▀░░▀░░▀▀▀░▀▀▀░▀░▀░▀▀▀
  * ========================================================================== */
+
+/** =========================================================================
+ * Perform shallow copy of ring buffer. This will not be a full fledged rb
+ * object and both will share buffer.
+ *
+ * If ring buffer is dynamic, we have to perform 2 separate write/read
+ * operations on rb. Since write/read are on separate semaphores and can
+ * happen simultaneously, we cannot modify real #rb as we may get preempted
+ * after first write, and then read thread will read #rb at inconsistent
+ * state. We don't want to block read while doing write and vice/versa so
+ * we create shallow copy of #rb, on which we will perform operation and
+ * once things are done we will update real #rb object
+ *
+ * @param rb source ring buffer
+ * @param dummy destination ring buffer.
+ * ========================================================================== */
+static void rb_make_shallow_copy(const struct rb *rb, struct rb *dummy)
+{
+	dummy->head = rb->head;
+	dummy->tail = rb->tail;
+	dummy->count = rb->count;
+	dummy->buffer = rb->buffer;
+	dummy->object_size = rb->object_size;
+	dummy->flags = rb->flags;
+}
+
+/** =========================================================================
+ * Post to a semaphore, but do not exceed value of 1.
+ *
+ * It's normal for write operation to do sem_post() multiple times before
+ * read thread does sem_wait(). If we increase semaphore to high values, and
+ * then there are no new writes, read thread will be in a loop decrementing
+ * semaphore for no gain. Same applies vice/versa.
+ *
+ * @param sem semaphore to post to
+ * ========================================================================== */
+static void rb_sem_post(sem_t *sem)
+{
+	int value;
+	sem_getvalue(sem, &value);
+	if (value == 0)
+		sem_post(sem);
+}
 
 /** =========================================================================
  * Calculates number of elements in ring buffer until the end of buffer
@@ -205,30 +247,6 @@ static int rb_dynamic_len_size(struct rb *rb)
 }
 
 /** =========================================================================
- * Wait for conditional variable to get signaled
- * ========================================================================== */
-static void rb_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
-{
-	struct timespec ts;  /* timeout for pthread_cond_timedwait */
-
-	/* This happens only after calling rb_stop()
-	 *
-	 * on some very rare occasions it is possible that signal won't
-	 * reach out rb->wait_room conditional variable. This shouldn't
-	 * happen, but yet it does. Such behavior may cause deadlock.
-	 * To prevent deadlock we wake this thread every now and then to
-	 * make sure program is running. When everything works ok, this
-	 * has marginal impact on performance and when things go south,
-	 * instead of deadlocking we stall execution for maximum 5
-	 * seconds.
-	 *
-	 * TODO: look into this and try to make proper fix */
-	clock_gettime(CLOCK_REALTIME, &ts);
-	ts.tv_sec += 5;
-	pthread_cond_timedwait(cond, mutex, &ts);
-}
-
-/** =========================================================================
  * Grow ring buffer #rb 2 times. If memory is wrapped around, it will be
  * relocated so ring buffer is still in valid stated after we're done here.
  * If #realloc() will not give us more memory, ring buffer stays unmodified.
@@ -337,28 +355,26 @@ static int rb_init_p(struct rb *rb, void *buf, size_t count,
 
 	rb->force_exit = 0;
 
+	VALIDGO(errno, error_rsem, sem_init(&rb->read_sem, 0, 0) == 0);
+	VALIDGO(errno, error_wsem, sem_init(&rb->write_sem, 0, 1) == 0);
 	VALIDGO(e, error_lock,  (e = pthread_mutex_init(&rb->lock, NULL)) == 0);
 	VALIDGO(e, error_rlock, (e = pthread_mutex_init(&rb->rlock, NULL)) == 0);
 	VALIDGO(e, error_wlock, (e = pthread_mutex_init(&rb->wlock, NULL)) == 0);
-	VALIDGO(e, error_data,  (e = pthread_cond_init(&rb->wait_data, NULL)) == 0);
-	VALIDGO(e, error_room,  (e = pthread_cond_init(&rb->wait_room, NULL)) == 0);
 
 	return 0;
 
-error_room:
-	pthread_cond_destroy(&rb->wait_data);
-error_data:
-	pthread_mutex_destroy(&rb->wlock);
 error_wlock:
 	pthread_mutex_destroy(&rb->rlock);
 error_rlock:
 	pthread_mutex_destroy(&rb->lock);
 error_lock:
+	sem_close(&rb->write_sem);
 	errno = e;
+error_wsem:
+	sem_close(&rb->read_sem);
+error_rsem:
 	return -1;
 #endif
-
-	return 0;
 }
 
 /** =========================================================================
@@ -529,11 +545,6 @@ static size_t rb_dynamic_read_count(struct rb *rb, int peek)
  * into buffer. If there is not enough data in ring buffer, function will
  * read whatever is in the ring buffer and return with only elements read.
  *
- * Function also accepts flags.
- * - rb_peek: do normal read operation, but do not remove read data from
- *   ring buffer, calling recv() with this flag multiple times will yield
- *   same results (provided that no new data is copied to ring buffer)
- *
  * @param rb ring buffer object
  * @param buffer location where data from rb will be stored
  * @param count requested number of data from rb
@@ -543,8 +554,6 @@ static size_t rb_dynamic_read_count(struct rb *rb, int peek)
  * @return -1 when no data could be copied to #buffer (rb is empty)
  *
  * @exception EAGAIN ring buffer is empty, nothing copied to #buffer
- * @exception EMSGSIZE #rb is dynamic, and #count is bigger than it's
- *            described by #rb->object_size
  * @exception ENOBUFS #rb is dynamic and there is data on #rb, but #buffer
  *            is not big enough to hold whole message
  * ========================================================================== */
@@ -553,7 +562,7 @@ static long rb_recvs(struct rb *rb, void *buffer, size_t count, enum rb_flags fl
 	size_t  rbcount;     /* number of elements in rb */
 	size_t  dyn_next_count; /* size of next dynamic message in buffer */
 	size_t  nread;
-	size_t  tail_save;
+	struct rb dummy_rb;
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 	VALID(EINVAL, rb);
@@ -567,28 +576,25 @@ static long rb_recvs(struct rb *rb, void *buffer, size_t count, enum rb_flags fl
 		return_errno(-1, EAGAIN);
 
 	if (count > (size_t)LONG_MAX)
-		/* function cannot read more than LONG_MAX count of elements,
-		 * trim users count to acceptable value */
 		count = LONG_MAX;
 
 	if (!RB_IS_DYNAMIC(rb)) {
 		rbcount = rb_count(rb);
 		if (count > rbcount)
-			/* Caller requested more data then is available, adjust count */
+			/* Caller requested more data than is available, adjust count */
 			count = rbcount;
 		return rb_copy_from(rb, buffer, count, flags & rb_peek);
 	}
 
-	tail_save = rb->tail;
-	dyn_next_count = rb_dynamic_read_count(rb, 0);
-	if (count < dyn_next_count) {
-		rb->tail = tail_save;
+	rb_make_shallow_copy(rb, &dummy_rb);
+	dyn_next_count = rb_dynamic_read_count(&dummy_rb, 0);
+	if (count < dyn_next_count)
 		return_errno(-1, ENOBUFS);
-	}
 
-	nread = rb_copy_from(rb, buffer, dyn_next_count, 0);
-	if (flags & rb_peek)
-		rb->tail = tail_save;
+	nread = rb_copy_from(&dummy_rb, buffer, dyn_next_count, 0);
+	if (!(flags & rb_peek))
+		/* update real rb object, if we are not peeking */
+		rb->tail = dummy_rb.tail;
 	return nread;
 }
 
@@ -612,7 +618,12 @@ static int rb_can_read(struct rb *rb, size_t count)
 {
 	if (!RB_IS_DYNAMIC(rb))
 		return rb_count(rb);
-	return rb_count(rb) && count >= rb_dynamic_read_count(rb, rb_peek);
+	long ret = rb_count(rb);
+	size_t next_count = 0;
+	if (ret)
+		next_count = rb_dynamic_read_count(rb, rb_peek);
+	trace("can read: h:%zu t:%zu c:%ld nc: %zu", rb->head, rb->tail, ret, next_count);
+	return rb_count(rb) && count >= next_count;
 }
 
 /** =========================================================================
@@ -620,11 +631,6 @@ static int rb_can_read(struct rb *rb, size_t count)
  *
  * For non-dynamic #rb this will return OK when there is any data available.
  * For dynamic, function will return OK only when whole #count can be read. 
- *
- * Call this function with rb->lock in UNLOCK state. This mutex will be
- * locked on entry, and unlocked while waiting for more space on #rb. When
- * function returns 0 (OK), rb->lock will be in locked state. When there was
- * an error, it rb->lock will be in unlocked state.
  *
  * If #nread is greater than 0, we will quit immediately just as if #rb was
  * in non-blocking mode. Standard Unix read(2) can return less than
@@ -641,27 +647,24 @@ static int rb_can_read(struct rb *rb, size_t count)
  * @param nread number of bytes already read
  * @param flags operation flags
  *
- * @return 0 if #rb is readable, rb->lock will be in locked state
- * @return -1 #rb is NOT readable, rb->lock will be in unlocked state
+ * @return  0 #rb is readable
+ * @return -1 #rb is NOT readable
  *
  * @exception EAGAIN non-blocking operation was requested
  * ========================================================================== */
 static int rb_wait_for_data(struct rb *rb, size_t count,
 	size_t nread, enum rb_flags flags)
 {
-	lock(rb->lock);
 	while (rb_can_read(rb, count) == 0 && rb->force_exit == 0) {
-		if (nread || !RB_IS_BLOCKING(rb, flags)) {
-			unlock(rb->lock);
+		if (nread || !RB_IS_BLOCKING(rb, flags))
 			return_errno(-1, EAGAIN);
-		}
 
-		rb_cond_wait(&rb->wait_data, &rb->lock);
+		trace("sem wait read");
+		sem_wait(&rb->read_sem);
 	}
 
 	return 0;
 }
-
 
 /** =========================================================================
  * Reads count data from #rb into #buffer.
@@ -697,26 +700,19 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 	nread = 0;
 	buf = buffer;
 
-	/* globally lock read mutex, we don't want to let multiple readers to
-	 * read from single rb, this may lead to situation when T1 reads part of
-	 * data, then T2 comes in reads some data, and then T1 comes back and
-	 * reads more data, and now T1 read data that is not continuous. Very
-	 * bad when reading full packets */
-
 	lock(rb->rlock);
-	trace("i/count: %zu, flags: %u", count, flags);
+	trace("count: %zu, flags: %u", count, flags);
 	while (count) {
 		if (rb_wait_for_data(rb, count, nread, flags)) {
 			unlock(rb->rlock);
-			trace("i/ret, nread: %zu", nread);
+			trace("ret, nread: %zu", nread);
 			return nread ? nread : -1;
 		}
 
 		if (rb->force_exit) {
 			/* ring buffer is going down operations on buffer are not allowed */
-			unlock(rb->lock);
 			unlock(rb->rlock);
-			trace("i/force exit");
+			trace("force exit");
 			return_errno(-1, ECANCELED);
 		}
 
@@ -725,7 +721,8 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 			nread = rb_recvs(rb, buffer, count, flags);
 			count = 0;
 		} else {
-			to_copy = MIN(count, (size_t)rb_count(rb));
+			size_t rbcount = rb_count(rb);
+			to_copy = MIN(count, rbcount);
 
 			rb_copy_from(rb, buf, to_copy, flags & rb_peek);
 
@@ -734,23 +731,25 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 			nread += to_copy;
 		}
 
-		/* Signal any threads that waits for space to put data in buffer */
-		pthread_cond_signal(&rb->wait_room);
-		unlock(rb->lock);
+		/* Signal any threads that wait for space to put data in buffer */
+		trace("sem post write");
+		rb_sem_post(&rb->write_sem);
 	}
 
 	unlock(rb->rlock);
-	trace("i/ret %zu", nread);
+	trace("ret nread %zu", nread);
 	return nread;
 }
 #endif  /* ENABLE_THREADS */
 
 /** =========================================================================
- * Reads maximum of count elements from rb and stores them into buffer.
+ * Reads maximum #count elements from rb and stores them into buffer.
  *
- * Function will never block, and cannot guarantee writing count elements
- * into buffer. If there is not enough data in ring buffer, function will
- * read whatever is in the ring buffer and return with only elements read.
+ * If there is not enough data in ring buffer, function will read whatever
+ * is in the ring buffer and return with only elements read.
+ *
+ * If multi-threading is enabled, and operation is blocking, function will
+ * block until at least 1 element has been read.
  *
  * @param rb ring buffer object
  * @param buffer location where data from rb will be stored
@@ -758,7 +757,11 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
  *
  * @return Number of bytes copied to #buffer
  * @return -1 when no data could be copied to #buffer (rb is empty)
+ *
  * @exception EAGAIN ring buffer is empty, nothing copied to #buffer
+ * @exception EINVAL invalid parameter passed
+ * @exception ENOBUFS #rb is #rb_dynamic and there is data on #rb, but
+ *            #buffer is not big enough to hold whole message
  * ========================================================================== */
 long rb_read(struct rb *rb, void *buffer, size_t count)
 {
@@ -767,6 +770,14 @@ long rb_read(struct rb *rb, void *buffer, size_t count)
 
 /** =========================================================================
  * Same as rb_read but also accepts #flags
+ *
+ * - rb_peek: do normal read operation, but do not remove read data from
+ *   ring buffer, calling rb_recv() with this flag multiple times will yield
+ *   same results (provided that no new data is copied to ring buffer).
+ *   Peeking is always non-blocking operation regardless of other settings,
+ *   if it cannot immediately read data it will return -1/EAGAIN
+ * - rb_dontwait: don't ever block a call, return with -1/EAGAIN if there is
+ *   no data to read
  *
  * @param rb ring buffer object
  * @param buffer location where data from rb will be stored
@@ -778,6 +789,8 @@ long rb_read(struct rb *rb, void *buffer, size_t count)
  *
  * @exception EAGAIN ring buffer is empty, nothing copied to #buffer
  * @exception EINVAL invalid parameter passed
+ * @exception ENOBUFS #rb is #rb_dynamic and there is data on #rb, but
+ *            #buffer is not big enough to hold whole message
  * ========================================================================== */
 long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 {
@@ -789,29 +802,24 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 		return 0;
 
 	if (count > (size_t)LONG_MAX)
-		/* function cannot read more than LONG_MAX count of elements, trim
-		 * users count to acceptable value */
 		count = LONG_MAX;
 
 #if ENABLE_THREADS
 	if ((rb->flags & rb_multithread) == 0)
 		return rb_recvs(rb, buffer, count, flags);
 
-	lock(rb->lock);
-	if (rb->force_exit) {
-		unlock(rb->lock);
-		errno = ECANCELED;
-		return -1;
-	}
-	unlock(rb->lock);
+	if (rb->force_exit)
+		return_errno(-1, ECANCELED);
 
 	if (flags & rb_peek) {
-		/* when called is just peeking, we can simply call function for
+		/* when call is just peeking, we can simply call function for
 		 * single thread, as it will not modify data, and will not cause
 		 * deadlock */
-		lock(rb->lock);
+		trace("try lock peeking read");
+		if (pthread_mutex_trylock(&rb->rlock))
+			return_errno(-1, EAGAIN);
 		count = rb_recvs(rb, buffer, count, flags);
-		unlock(rb->lock);
+		unlock(rb->rlock);
 		return count;
 	}
 
@@ -923,6 +931,39 @@ static int rb_dynamic_write_count(struct rb *rb, size_t count)
 	return 0;
 }
 
+
+/** =========================================================================
+ * Perform dynamic write operation.
+ *
+ * This operations consists of 2 separate write operations. First it writes
+ * size of frame onto buffer, and next it writes frame itself.
+ *
+ * @param rb ring buffer object
+ * @param buffer data to put onto #rb
+ * @param count number of bytes to put onto #rb
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+static int rb_dynamic_write(struct rb *rb, const void *buffer, size_t count)
+{
+	int written_len;
+
+	/* we can't yet write anything to rb->head, or else read thread will
+	 * start acting on that partial write. That means functions that
+	 * operate on #rb like rb_space_end() will return us invalid value. */
+	struct rb dummy_rb;
+	rb_make_shallow_copy(rb, &dummy_rb);
+
+	if ((written_len = rb_dynamic_write_count(&dummy_rb, count)) == -1)
+		return -1;
+
+	rb_copy_to(&dummy_rb, buffer, count);
+	/* now that all data is on buffer, we can safely move head pointer */
+	rb->head = dummy_rb.head;
+
+	return 0;
+}
+
 #if ENABLE_THREADS
 /** =========================================================================
  * Check if buffer of size #count can be written.
@@ -952,11 +993,6 @@ static int rb_can_write(struct rb *rb, size_t count)
  * For non-dynamic #rb this will return OK when there is any space available.
  * For dynamic, function will return OK only when whole #count can be written
  *
- * Call this function with rb->lock in UNLOCK state. This mutex will be
- * locked on entry, and unlocked while waiting for more space on #rb. When
- * function returns 0 (OK), rb->lock will be in locked state. When there was
- * an error, it rb->lock will be in unlocked state.
- *
  * If either #rb or #flags show that operation is non-blocking, function
  * won't block, and will return -1/EAGAIN if #rb is not writable at the
  * moment.
@@ -965,34 +1001,31 @@ static int rb_can_write(struct rb *rb, size_t count)
  * @param count requested number of elements you'd like to put on buffer
  * @param flags operation flags
  *
- * @return 0 if #rb is writable, rb->lock will be in locked state
- * @return -1 #rb is NOT writable, rb->lock will be in unlocked state
+ * @return  0 #rb is writable
+ * @return -1 #rb is NOT writable
  *
  * @exception ENOMEM #rb is growable, but we failed to allocate more memory
  * @exception EAGAIN non-blocking operation was requested
  * ========================================================================== */
 static int rb_wait_for_space(struct rb *rb, size_t count, enum rb_flags flags)
 {
-	lock(rb->lock);
 	while (rb_can_write(rb, count) == 0 && rb->force_exit == 0) {
 		/* no free space on the buffer, grow buffer if we are allowed */
 		if (RB_IS_GROWABLE(rb)) {
 			int ret;
 			ret = rb_grow(rb);
-			if (ret) {
-				unlock(rb->lock);
+			if (ret)
 				return_errno(-1, ENOMEM);
-			} else
+			else
 				continue;
 		}
 
-		if (!RB_IS_BLOCKING(rb, flags)) {
-			unlock(rb->lock);
+		if (!RB_IS_BLOCKING(rb, flags))
 			return_errno(-1, EAGAIN);
-		}
 
 		/* wait for buffer to free some space */
-		rb_cond_wait(&rb->wait_room, &rb->lock);
+		trace("sem wait write");
+		sem_wait(&rb->write_sem);
 	}
 
 	return 0;
@@ -1019,6 +1052,11 @@ static int rb_wait_for_space(struct rb *rb, size_t count, enum rb_flags flags)
  *
  * @exception EAGAIN ring buffer is full, and non blocking operation has been
  *            requested
+ * @exception ENOMEM #rb is growable, but we failed to allocate more memory
+ * @exception EMSGSIZE #rb is dynamic and #count is too large. Increase
+ *            object_size in #rb creation.
+ * @exception ECANCELED rb_stop() has been called, and there was no data
+ *            written to rb
  * ========================================================================== */
 static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 	enum rb_flags flags)
@@ -1030,38 +1068,37 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 
 	nwritten = 0;
 	buf = buffer;
-	trace("i/count: %zu, flags: %u", count, flags);
+	trace("count: %zu, flags: %u", count, flags);
 	lock(rb->wlock);
 
 	while (count) {
 		if (rb_wait_for_space(rb, count, flags)) {
 			unlock(rb->wlock);
-			trace("i/ret, nwritten: %zu", nwritten);
+			trace("ret, nwritten: %zu", nwritten);
 			return nwritten ? nwritten : -1;
 		}
 
 		if (rb->force_exit) {
 			/* ring buffer is going down operations on buffer are not allowed */
-			unlock(rb->lock);
 			unlock(rb->wlock);
-			trace("i/force exit");
-			return_errno(-1, ECANCELED);
+			trace("force exit");
+			errno = ECANCELED;
+			return nwritten ? nwritten : -1;
 		}
 
 		/* copy as much as we can to ring buffer */
 		if (RB_IS_DYNAMIC(rb)) {
 			/* in dynamic mode, we can only write all or nothing, and
 			 * at this point we know there is enough space in #rb */
-			if (rb_dynamic_write_count(rb, count)) {
-				unlock(rb->lock);
+			if (rb_dynamic_write(rb, buffer, count)) {
 				unlock(rb->wlock);
 				return_errno(-1, EMSGSIZE);
 			}
-			rb_copy_to(rb, buffer, count);
 			nwritten += count;
 			count -= count;
 		} else {
-			to_copy = MIN(count, (size_t)rb_space(rb));
+			size_t rbspace = rb_space(rb);
+			to_copy = MIN(count, rbspace);
 
 			rb_copy_to(rb, buf, to_copy);
 
@@ -1071,12 +1108,12 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 		}
 
 		/* Signal any threads that waits for data to read */
-		pthread_cond_signal(&rb->wait_data);
-		unlock(rb->lock);
+		trace("sem post read");
+		rb_sem_post(&rb->read_sem);
 	}
 
 	unlock(rb->wlock);
-	trace("i/ret %zu", nwritten);
+	trace("ret nwritten %zu", nwritten);
 	return nwritten;
 }
 #endif
@@ -1094,7 +1131,6 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
  * @param rb ring buffer object
  * @param buffer location of data to put into rb
  * @param count number of elements to put on the rb
- * @param flags sending options
  *
  * @return On success function will return number of bytes copied to #buffer
  * @return On error -1 is returned
@@ -1105,12 +1141,10 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
  * @exception ENOBUFS #rb is dynamic, but there is not enough space to
  *            copy whole #buffer onto #rb
  * ========================================================================== */
-long rb_sends(struct rb *rb, const void *buffer, size_t count, enum rb_flags flags)
+static long rb_sends(struct rb *rb, const void *buffer, size_t count)
 {
 	size_t  rbspace;     /* space left in rb */
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
-
-	(void)flags;
 
 	VALID(EINVAL, rb);
 	VALID(EINVAL, buffer);
@@ -1148,7 +1182,10 @@ long rb_sends(struct rb *rb, const void *buffer, size_t count, enum rb_flags fla
 }
 
 /** =========================================================================
- * Same as #rb_write but also accepts flags
+ * Same as #rb_write but also accepts flags.
+ *
+ * - rb_dontwait when flag is passed, function will never block execution
+ *   thread
  *
  * @param rb ring buffer object
  * @param buffer location of data to put into rb
@@ -1159,6 +1196,11 @@ long rb_sends(struct rb *rb, const void *buffer, size_t count, enum rb_flags fla
  * @return On error -1 is returned
  *
  * @exception EAGAIN ring buffer is full, cannot copy anything to it
+ * @exception ENOMEM #rb is growable, but we failed to allocate more memory
+ * @exception EMSGSIZE #rb is dynamic and #count is too large. Increase
+ *            object_size in #rb creation.
+ * @exception ECANCELED rb_stop() has been called, and there was no data
+ *            written to rb, returned only when #rb it multi-threaded
  * ========================================================================== */
 long rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flags)
 {
@@ -1167,25 +1209,21 @@ long rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flag
 	VALID(EINVAL, rb->buffer);
 
 	if (count > (size_t)LONG_MAX)
-		/* function cannot read more than LONG_MAX count of elements,
-		 * trim users count to acceptable value */
 		count = LONG_MAX;
 
 #if ENABLE_THREADS
 	if ((rb->flags & rb_multithread) == 0)
-		return rb_sends(rb, buffer, count, flags);
+		return rb_sends(rb, buffer, count);
 
-	lock(rb->lock);
-	if (rb->force_exit) {
-		unlock(rb->lock);
-		errno = ECANCELED;
-		return -1;
-	}
-	unlock(rb->lock);
+	if (rb->force_exit)
+		return_errno(-1, ECANCELED);
 
 	return rb_sendt(rb, buffer, count, flags);
 #else
-	return rb_sends(rb, buffer, count, flags);
+	return rb_sends(rb, buffer, count);
+#endif
+}
+
 #endif
 }
 
@@ -1195,6 +1233,9 @@ long rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flag
  * If there is not enough space to store all data from buffer, function will
  * store as many as it can, and will return count of objects stored into
  * ring buffer. If buffer is full, function returns -1 and EAGAIN error.
+ *
+ * If #rb is blocking, function will block until all #count data is written,
+ * or there is an error.
  *
  * Works same way as rb_send() with flags set to 0.
  *
@@ -1206,6 +1247,11 @@ long rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flag
  * @return On error -1 is returned
  *
  * @exception EAGAIN ring buffer is full, cannot copy anything to it
+ * @exception ENOMEM #rb is growable, but we failed to allocate more memory
+ * @exception EMSGSIZE #rb is dynamic and #count is too large. Increase
+ *            object_size in #rb creation.
+ * @exception ECANCELED rb_stop() has been called, and there was no data
+ *            written to rb, returned only when #rb it multi-threaded
  * ========================================================================== */
 long rb_write(struct rb *rb, const void *buffer, size_t count)
 {
@@ -1272,15 +1318,12 @@ int rb_stop(struct rb *rb)
 #if ENABLE_THREADS
 	VALID(EINVAL, rb->flags & rb_multithread);
 
-	lock(rb->lock);
 	rb->force_exit = 1;
 
 	/* signal all conditional variables, #force_exit is set, so all
 	 * threads should just exit theirs rb_write/read functions. */
-	pthread_cond_broadcast(&rb->wait_data);
-	pthread_cond_broadcast(&rb->wait_room);
-
-	unlock(rb->lock);
+	rb_sem_post(&rb->read_sem);
+	rb_sem_post(&rb->write_sem);
 
 	return 0;
 #else
@@ -1305,8 +1348,8 @@ int rb_cleanup(struct rb *rb)
 	if ((rb->flags & rb_multithread) == 0)
 		return 0;
 
-	pthread_cond_destroy(&rb->wait_data);
-	pthread_cond_destroy(&rb->wait_room);
+	sem_close(&rb->write_sem);
+	sem_close(&rb->read_sem);
 	pthread_mutex_destroy(&rb->lock);
 	pthread_mutex_destroy(&rb->rlock);
 	pthread_mutex_destroy(&rb->wlock);

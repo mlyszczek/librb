@@ -96,6 +96,8 @@ static void *dynamic_consumer(void *arg)
 			/* stop called */
 			return NULL;
 		mt_fail(memcmp(verify, rdbuf, nread) == 0);
+		if (memcmp(verify, rdbuf, nread))
+			while (1);
 	}
 }
 
@@ -170,9 +172,9 @@ static void *multi_producer(void *arg)
 
 		if (d->objsize == 1) {
 			unsigned char i = index;
-			rb_write(rb, &i, 1);
+			mt_fail(rb_write(rb, &i, 1) == 1);
 		} else
-			rb_write(rb, &index, 1);
+			mt_fail(rb_write(rb, &index, 1) == 1);
 	}
 }
 
@@ -278,6 +280,7 @@ static void multi_producers_consumers(void)
 		/* while waiting, we randomly peek into rb, and to make sure,
 		 * peeking won't make a difference */
 		rb_recv(tdata.rb, buf, rand() % 16, rb_peek);
+		//usleep(5000);
 	}
 
 	rb_stop(tdata.rb);
@@ -947,16 +950,66 @@ static void dynamic_peek_size(void)
 	rb_destroy(rb);
 }
 
+int mt_send_big_data_multi_receiver_cons_frames_per_cons = 1024;
+void *mt_send_big_data_multi_receiver_cons(void *arg) {
+	struct rb *rb = arg;
+	for (int i = 0; i != mt_send_big_data_multi_receiver_cons_frames_per_cons; i++) {
+		char c = 0;
+		mt_fail(rb_read(rb, &c, 1) == 1);
+		mt_fail(c == 42);
+	}
+	return NULL;
+}
+
+static void mt_send_big_data_multi_receiver(void)
+{
+	pthread_t *cons;
+	char *buf;
+	long buflen;
+	struct rb *rb = rb_new(8, 1, rb_multithread);
+	int ncons = 16;
+	int i;
+
+	cons = malloc(ncons * sizeof(*cons));
+	for (i = 0; i != ncons; ++i)
+		pthread_create(&cons[i], NULL, mt_send_big_data_multi_receiver_cons, rb);
+
+	buflen = ncons * mt_send_big_data_multi_receiver_cons_frames_per_cons;
+	buf = malloc(buflen);
+	memset(buf, 42, buflen);
+	mt_fail(rb_write(rb, buf, buflen) == buflen);
+
+	for (i = 0; i != ncons; ++i)
+		pthread_join(cons[i], NULL);
+
+	free(buf);
+	free(cons);
+	rb_destroy(rb);
+}
+
+
+static void mt_read_more_than_is_on_buffer(void)
+{
+	char buf[128];
+	struct rb *rb = rb_new(256, 1, rb_multithread);
+
+	mt_fail(rb_write(rb, buf, 10) == 10);
+	mt_fail(rb_read(rb, buf, 128) == 10);
+
+	rb_destroy(rb);
+}
+
 int main(void)
 {
 	srand(time(NULL));
-	unsigned int t_rblen_max = 32;
-	unsigned int t_readlen_max = 32;
-	unsigned int t_writelen_max = 32;
-	unsigned int t_objsize_max = 32;
+	srand(0);
+	unsigned int t_rblen_max = 1024;
+	unsigned int t_readlen_max = 1024;
+	unsigned int t_writelen_max = 1024;
+	unsigned int t_objsize_max = 1024;
 
-	int t_nprod_max = 8;
-	int t_ncons_max = 8;
+	int t_nprod_max = 16;
+	int t_ncons_max = 16;
 
 	char name[128];
 
@@ -1025,6 +1078,8 @@ int main(void)
 
 #if ENABLE_THREADS
 	mt_run(multithread_eagain);
+	mt_run(mt_read_more_than_is_on_buffer);
+	mt_run(mt_send_big_data_multi_receiver);
 #endif
 
 	mt_return();
