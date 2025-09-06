@@ -53,7 +53,6 @@
 #endif
 
 #include "rb.h"
-#include "valid.h"
 
 /* ==========================================================================
  *               ░█▀▄░█▀▀░█▀▀░█░░░█▀█░█▀▄░█▀█░▀█▀░▀█▀░█▀█░█▀█░█▀▀
@@ -69,6 +68,9 @@
 #define RB_IS_DYNAMIC(rb) (rb->flags & rb_dynamic)
 #define RB_IS_BLOCKING(rb, flags) (!(rb->flags & rb_nonblock) && !(flags & rb_dontwait))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+
+#define VALID(e, x) if (!(x)) { errno = (e); return -1; }
+#define VALIDGO(e, l, x) if (!(x)) { errno = (e); goto l; }
 
 /* ==========================================================================
  *                     ░█▀▀░█░█░█▀█░█▀▀░▀█▀░▀█▀░█▀█░█▀█░█▀▀
