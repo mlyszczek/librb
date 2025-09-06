@@ -36,19 +36,23 @@
 #   include <stdio.h>
 #   include <syscall.h>
 #   include <unistd.h>
+#   include <time.h>
 
 	pthread_mutex_t trace_lock = PTHREAD_MUTEX_INITIALIZER;
+	struct rb *trace_rb;
 #   define trace(...) do {                                                     \
 		pthread_mutex_lock(&trace_lock);                                       \
-		fprintf(stderr, "[%s:%d:%s():%ld][rb h:%zu,t:%zu;c:%zu]",                       \
-			__FILE__, __LINE__, __func__, syscall(SYS_gettid),                 \
-			rb->head, rb->tail, rb->count);                                    \
+		fprintf(stderr, "%ld [%s:%-5d%-20s%-6ld][rb h:%-6zu t:%-6zu c:%6zu,%6zu/%-6zu] ",                       \
+			clock(), __FILE__, __LINE__, __func__, syscall(SYS_gettid),                 \
+			trace_rb->head, trace_rb->tail, rb_space(trace_rb), rb_count(trace_rb), trace_rb->count);                                    \
 		fprintf(stderr, __VA_ARGS__);                                                             \
 		fprintf(stderr, "\n");                                                          \
 		pthread_mutex_unlock(&trace_lock);                                     \
 	} while (0)
+#   define trace_init(RB) { trace_rb = RB; }
 #else
 #   define trace(...)
+#   define trace_init(RB)
 #endif
 
 
@@ -299,6 +303,7 @@ static int rb_init_p(struct rb *rb, void *buf, size_t count,
 	VALID(EINVAL, buf);
 	VALID(EINVAL, rb_is_power_of_two(count));
 
+	trace_init(rb);
 	trace("count: %zu, objsize: %zu, flags: %u", count, object_size, flags);
 
 	if (flags & rb_dynamic)
@@ -330,7 +335,6 @@ static int rb_init_p(struct rb *rb, void *buf, size_t count,
 
 	/* Multi threaded environment */
 
-	rb->stopped_all = -1;
 	rb->force_exit = 0;
 
 	VALIDGO(e, error_lock,  (e = pthread_mutex_init(&rb->lock, NULL)) == 0);
