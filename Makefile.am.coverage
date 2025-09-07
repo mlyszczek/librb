@@ -25,4 +25,3 @@ clean-coverage-html: clean-gcda
 clean-gcov: clean-coverage-html
 
 endif # HAVE_GCOV
-

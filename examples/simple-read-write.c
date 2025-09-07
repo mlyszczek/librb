@@ -1,115 +1,93 @@
 /* ==========================================================================
-    Licensed under BSD 2clause license See LICENSE file for more information
-    Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
-   ==========================================================================
-         -------------------------------------------------------------
-        / This example shows the simplest use of librb - that is, put \
-        \ some data on it, then read it, then print it                /
-         -------------------------------------------------------------
-                  \      (__)
-                   \     /oo|
-                    \   (_"_)*+++++++++*
-                           //I#\\\\\\\\I\
-                           I[I|I|||||I I `
-                           I`I'///'' I I
-                           I I       I I
-                           ~ ~       ~ ~
-                             Scowleton
-   ==========================================================================
-          _               __            __         ____ _  __
-         (_)____   _____ / /__  __ ____/ /___     / __/(_)/ /___   _____
-        / // __ \ / ___// // / / // __  // _ \   / /_ / // // _ \ / ___/
-       / // / / // /__ / // /_/ // /_/ //  __/  / __// // //  __/(__  )
-      /_//_/ /_/ \___//_/ \__,_/ \__,_/ \___/  /_/  /_//_/ \___//____/
-
-   ========================================================================== */
-
-
-#include "rb.h"
-
+ *  Licensed under BSD 2clause license See LICENSE file for more information
+ *  Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
+ * ==========================================================================
+ *       -------------------------------------------------------------
+ *      / This example shows the simplest use of librb - that is, put \
+ *      \ some data on it, then read it, then print it                /
+ *       -------------------------------------------------------------
+ *                \      (__)
+ *                 \     /oo|
+ *                  \   (_"_)*+++++++++*
+ *                         //I#\\\\\\\\I\
+ *                         I[I|I|||||I I `
+ *                         I`I'///'' I I
+ *                         I I       I I
+ *                         ~ ~       ~ ~
+ *                           Scowleton
+ * ==========================================================================
+ *                       ░▀█▀░█▀█░█▀▀░█░░░█░█░█▀▄░█▀▀░█▀▀
+ *                       ░░█░░█░█░█░░░█░░░█░█░█░█░█▀▀░▀▀█
+ *                       ░▀▀▀░▀░▀░▀▀▀░▀▀▀░▀▀▀░▀▀░░▀▀▀░▀▀▀
+ * ========================================================================== */
 #include <string.h>
 #include <stdio.h>
 
+#include "rb.h"
+#include "common.h"
+
+#define STACK_ALLOCATION 1
 
 /* ==========================================================================
-                                              _
-                           ____ ___   ____ _ (_)____
-                          / __ `__ \ / __ `// // __ \
-                         / / / / / // /_/ // // / / /
-                        /_/ /_/ /_/ \__,_//_//_/ /_/
-
-   ========================================================================== */
-
-
+ *                               ░█▄█░█▀█░▀█▀░█▀█
+ *                               ░█░█░█▀█░░█░░█░█
+ *                               ░▀░▀░▀░▀░▀▀▀░▀░▀
+ * ========================================================================== */
 int main(void)
 {
-    struct rb  *rb;                  /* pointer to malloced rb object */
-    int         i;                   /* simple interator for for loop */
-    long        w;                   /* return value from rb_wrote() */
-    long        r;                   /* return value from rb_read() */
-    int         data_to_write[256];  /* data to write into rb buffer */
-    int         data_read[256];      /* buffer where we will read from rb */
-    /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+	struct rb  *rb;                  /* pointer to new rb object */
+	long        nwritten;            /* return value from rb_write() */
+	long        nread;               /* return value from rb_read() */
+	int         data_to_write[256];  /* data to write into rb buffer */
+	int         data_read[256];      /* buffer where we will read from rb */
+#if STACK_ALLOCATION
+	struct rb   rbs;                 /* stack allocated ring buffer object */
+	int         buffer[128];         /* buffer to hold 128 integers */
+#endif
+	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
+	/* You can use stack or heap allocations. Pick your poison. */
+#if STACK_ALLOCATION
+	/* Initialize stack allocated #rb. Use stack allocated #buffer to
+	 * hold data. Tell #rb array properties that is length and single
+	 * element size */
+	if (rb_init(&rbs, buffer, rb_array_size(buffer), sizeof(int), 0))
+		pdie("rb_init()");
+	rb = &rbs;
+#else
+	/* Initialize ring buffer using heap. Buffer of #rb it allocated
+	 * internally as well */
+	if ((rb = rb_new(128, sizeof(int), 0)) == NULL)
+		pdie("rb_init()");
+#endif
 
-    /*
-     * create rb object that can hold 127 (yes, 127) elements each with size
-     * of int type.
-     */
+	/* fill data to send with some data */
+	for (int i = 0; i != rb_array_size(data_to_write); ++i)
+		data_to_write[i] = i;
 
-    if ((rb = rb_new(128, sizeof(int), 0)) == NULL)
-    {
-        perror("rb_new()");
-        return 1;
-    }
+	/* put data in the buffer, buffer can hold only 127 elements, and we try
+	 * to put 256 integers (elements) there, so rb_write will return 127,
+	 * as this is number of elements copied to rb object. */
+	nwritten = rb_write(rb, data_to_write, rb_array_size(data_to_write));
+	printf("number of elements stored to rb: %ld\n", nwritten);
 
-    /*
-     * fill data to send with some data
-     */
+	/* now we read maximum of 256 elements from rb to data_read buffer, but
+	 * since we put 127 elements in rb, only 127 elements will be copied
+	 * back to #data_read */
+	memset(data_read, 0x00, sizeof(data_read));
+	nread = rb_read(rb, data_read, rb_array_size(data_read));
+	printf("number of elements read from rb: %ld\n", nread);
 
-    for (i = 0; i != rb_array_size(data_to_write); ++i)
-    {
-        data_to_write[i] = i;
-    }
+	/* check if data read matches what we've just put on buffer */
+	printf("Checking if data matches... data %s\n",
+		memcmp(data_read, data_to_write, nread * sizeof(int)) ? "not ok" : "ok");
 
-    /*
-     * put data in the buffer, buffer can hold only 127 elements, and we try
-     * to put 256 bytes there, so rb_write  will  return  127,  as  this  is
-     * number of elements copied to rb object.
-     */
+	/* don't forget to cleanup object when done. */
+#if STACK_ALLOCATION
+	rb_cleanup(rb);
+#else
+	rb_destroy(rb);
+#endif
 
-    w = rb_write(rb, data_to_write, rb_array_size(data_to_write));
-    printf("number of elements stored to rb: %ld\n", w);
-
-    /*
-     * now we read maximum of 256 elements from rb to data_read buffer,  but
-     * since we put 127 elements in rb, only 127  elements  will  be  copied
-     * back to data_read
-     */
-
-    r = rb_read(rb, data_read, rb_array_size(data_read));
-    printf("number of elements read from rb: %ld\n", r);
-
-    /*
-     * now let's print what we put through rb, to see it really does work
-     */
-
-    for (i = 0; i != r; ++i)
-    {
-        if (i % 16 == 0)
-        {
-            printf("\n");
-        }
-
-        printf("%02x ", data_read[i]);
-    }
-
-    printf("\n");
-
-    /*
-     * don't forget to free memory allocated by rb
-     */
-
-    rb_destroy(rb);
-    return 0;
+	return 0;
 }
