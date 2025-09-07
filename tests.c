@@ -70,7 +70,6 @@ static unsigned char data[250];
 static unsigned int multi_index;
 static volatile unsigned int multi_index_count;
 
-#define rb_array_size(a) (sizeof(a)/sizeof(*(a)))
 mt_defs();
 
 #if ENABLE_THREADS
@@ -1167,6 +1166,19 @@ static void dynamic_read_write_invalid_count(void)
 	rb_cleanup(&rbs);
 }
 
+static void dynamic_limit_grow(void)
+{
+	struct rb *rb;
+	char buf[32] = { 0 };
+
+	rb = rb_new(4, 1, rb_growable);
+	rb_set_hard_max_count(rb, 16);
+	mt_fail(rb_write(rb, buf, 15) == 15);
+	mt_ferr(rb_write(rb, buf, 15), EAGAIN);
+
+	rb_destroy(rb);
+}
+
 int main(void)
 {
 	srand(time(NULL));
@@ -1248,6 +1260,7 @@ int main(void)
 	mt_run(dynamic_invalid_size);
 	mt_run(dynamic_read_write_invalid_count);
 	mt_run(recv_send_zero);
+	mt_run(dynamic_limit_grow);
 
 #if ENABLE_THREADS
 	mt_run(multithread_eagain);

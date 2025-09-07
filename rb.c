@@ -63,7 +63,7 @@
 #define trylock(L) (trace("try lock " #L), pthread_mutex_trylock(&L))
 #define lock(L) do { pthread_mutex_lock(&L); trace("lock " #L); } while (0)
 #define unlock(L) do { pthread_mutex_unlock(&L); trace("unlock " #L); } while (0)
-#define RB_IS_GROWABLE(rb) (rb->flags & rb_growable)
+#define RB_IS_GROWABLE(rb) ((rb->flags & rb_growable) && rb->count < rb->max_count)
 #define RB_IS_ROUNDABLE(rb) (rb->flags & rb_round_count)
 #define RB_IS_DYNAMIC(rb) (rb->flags & rb_dynamic)
 #define RB_IS_BLOCKING(rb, flags) (!(rb->flags & rb_nonblock) && !(flags & rb_dontwait))
@@ -359,6 +359,7 @@ static int rb_init_p(struct rb *rb, void *buf, size_t count,
 	rb->head = 0;
 	rb->tail = 0;
 	rb->count = count;
+	rb->max_count = SIZE_MAX;
 	rb->flags = flags;
 	rb->object_size = RB_IS_DYNAMIC(rb) ? rb_ctz(object_size) : object_size;
 
@@ -1710,4 +1711,26 @@ long rb_peek_size(struct rb *rb)
 	if (rb_count(rb) == 0)
 		return 0;
 	return rb_dynamic_read_count(rb, rb_peek);
+}
+
+/** =========================================================================
+ * Set hard limit for ring buffer count, when #rb is #rb_growable
+ *
+ * @param rb ring buffer object
+ * @param count hard limit for count when growing buffer
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+int rb_set_hard_max_count(struct rb *rb, size_t count)
+{
+	VALID(EINVAL, rb);
+	VALID(EINVAL, rb->buffer);
+	VALID(EINVAL, rb_is_power_of_two(count));
+
+	if (rb->flags & rb_dynamic)
+		if (rb_is_uint_size(rb->object_size) == 0)
+			return_errno(-1, EINVAL);
+
+	rb->max_count = count;
+	return 0;
 }

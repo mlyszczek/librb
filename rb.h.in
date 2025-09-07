@@ -77,6 +77,7 @@ struct rb
 	atomic_size_t    head;        /* pointer to buffer's head */
 	atomic_size_t    tail;        /* pointer to buffer's tail */
 	atomic_size_t    count;       /* maximum number of elements in buffer */
+	atomic_size_t    max_count;   /* hard limit count, when rb_growable is set */
 	atomic_size_t    object_size; /* size of a single object in buffer */
 	enum rb_flags    flags;       /* flags used with buffer */
 	unsigned char   *buffer;      /* pointer to ring buffer in memory */
@@ -91,9 +92,12 @@ struct rb
 #endif
 };
 
+#define rb_array_size(a) (sizeof(a)/sizeof(*(a)))
+
 struct rb *rb_new(size_t count, size_t object_size, enum rb_flags flags);
 int rb_init(struct rb *rb, void *buf, size_t count, size_t object_size,
 	enum rb_flags flags);
+int rb_set_hard_max_count(struct rb *rb, size_t count);
 long rb_read(struct rb *rb, void *buffer, size_t count);
 long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags);
 long rb_write(struct rb *rb, const void *buffer, size_t count);
