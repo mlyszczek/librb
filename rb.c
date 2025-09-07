@@ -115,6 +115,7 @@ static void rb_make_shallow_copy(const struct rb *rb, struct rb *dummy)
  * @return 0 #mutex has been locked
  * @return -1 #mutex has not been locked
  * ========================================================================== */
+#if ENABLE_THREADS
 static int rb_trylock(struct rb *rb, int flags, pthread_mutex_t *mutex)
 {
 	trace("try lock %s", mutex == &rb->wlock ? "write" : "read");
@@ -125,6 +126,7 @@ static int rb_trylock(struct rb *rb, int flags, pthread_mutex_t *mutex)
 			return_errno(-1, EAGAIN);
 	return 0;
 }
+#endif
 
 /** =========================================================================
  * Post to a semaphore, but do not exceed value of 1.
@@ -136,6 +138,7 @@ static int rb_trylock(struct rb *rb, int flags, pthread_mutex_t *mutex)
  *
  * @param sem semaphore to post to
  * ========================================================================== */
+#if ENABLE_THREADS
 static void rb_sem_post(sem_t *sem)
 {
 	int value;
@@ -143,6 +146,7 @@ static void rb_sem_post(sem_t *sem)
 	if (value == 0)
 		sem_post(sem);
 }
+#endif
 
 /** =========================================================================
  * Calculates number of elements in ring buffer until the end of buffer

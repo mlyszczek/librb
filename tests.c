@@ -783,7 +783,7 @@ static void einval(void)
 #if ENABLE_THREADS
 	mt_ferr(rb_stop(NULL), EINVAL);
 #else
-	mt_ferr(rb_stop(NULL), ENOSYS);
+	mt_ferr(rb_stop(rb), ENOSYS);
 #endif
 	rb_destroy(rb);
 }
@@ -1013,6 +1013,7 @@ static void dynamic_peek_size(void)
 	rb_destroy(rb);
 }
 
+#if ENABLE_THREADS
 int mt_send_big_data_multi_receiver_cons_frames_per_cons = 1024;
 void *mt_send_big_data_multi_receiver_cons(void *arg) {
 	struct rb *rb = arg;
@@ -1049,6 +1050,7 @@ static void mt_send_big_data_multi_receiver(void)
 	free(cons);
 	rb_destroy(rb);
 }
+#endif
 
 
 static void mt_read_more_than_is_on_buffer(void)
@@ -1062,6 +1064,7 @@ static void mt_read_more_than_is_on_buffer(void)
 	rb_destroy(rb);
 }
 
+#if ENABLE_THREADS
 static void *write_dontwait_thread(void *arg)
 {
 	char buf[8] = { 0 };
@@ -1110,6 +1113,7 @@ static void read_dontwait(void)
 	pthread_join(blocked_read, NULL);
 	rb_destroy(rb);
 }
+#endif
 
 static void dynamic_invalid_size(void)
 {
