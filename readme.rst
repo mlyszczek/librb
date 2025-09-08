@@ -94,17 +94,17 @@ https://github.com/mlyszczek/librb/tree/master/examples.
 
 Current examples are
 
-simple-read-write.c
+`simple-read-write.c <https://git.bofc.pl/librb/tree/examples/simple-read-write.c>`_
     Shows the most basic use of ring buffer in single thread environment.
     That is buffer creation, writing, reading and cleaning up after job is done.
 
-prod-cons-threads.c
+`prod-cons-threads.c <https://git.bofc.pl/librb/tree/examples/prod-cons-threads.c>`_
     Classic producer consumer problem. Thanks to internal thread awareness
     solving this problem is trivial. Example shows how to use ring buffer
     in with multiple threads. It will also present how growable buffer can
     be created with hard limit, so it doesn't grow too large.
 
-posix-network-parser.c
+`posix-network-parser.c <https://git.bofc.pl/librb/tree/examples/posix-network-parser.c>`_
     Example creates simple TCP server. Data is read to ring buffer, and then
     it's being processed in another thread. This again shows usage of buffer
     in multi-thread environment, but also shows how you can pass internal
@@ -113,7 +113,7 @@ posix-network-parser.c
     of the library. With that API you can work directly on buffer's memory to
     perform custom work.
 
-event-loop.c
+`event-loop.c <https://git.bofc.pl/librb/tree/examples/event-loop.c>`_
     Simple event loop. There are 3 separate threads that put events on a queue
     (keyboard, network and posix signal events). Those events are then later
     processed in main thread. Nothing really new here, but I needed event loop
