@@ -45,7 +45,7 @@ html_theme_options = {
 	'github_banner': True,
 	'github_type': 'star',
 	'page_width': '103ch',
-	'code_font_family': 'JetBrainsMono',
+	'code_font_family': 'JetBrains Mono',
 	'caption_font_family': 'sans',
 	'head_font_family': 'sans',
 	'font_family': 'sans',
