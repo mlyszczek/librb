@@ -1,0 +1,29 @@
+NAME
+----
+|rb_clear|, |rb_discard| - remove data from buffer without performing any read
+or copying
+
+SYNOPSIS
+--------
+.. code-block:: c
+
+   #include <rb.h>
+
+   int rb_clear(struct rb *rb, int clear);
+   long rb_discard(struct rb *rb, size_t count);
+
+DESCRIPTION
+-----------
+|rb_discard| will remove *count* elements from *rb* ring buffer. This basically
+acts the same way as |rb_recv| but does not perform any copies and can never
+block.
+
+|rb_clear| will clear out whole ring buffer. If *clear* is set to 1, function
+will also zero-out all buffer, which may be good if you want to remove some
+confidential data from memory.
+
+When multi-thread is enabled, |rb_clear| will block to acquire read mutex,
+and if *clear* is set it may also wake up threads blocked in write. These woken
+threads may return **EAGAIN** errors during the clear operation.
+
+.. include:: /in/footer.in

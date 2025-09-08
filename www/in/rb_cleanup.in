@@ -1,0 +1,84 @@
+NAME
+----
+|rb_destroy|, |rb_cleanup|, |rb_stop| - stop, destroy and cleanup ring buffer
+
+SYNOPSIS
+--------
+.. code-block:: c
+
+   #include <rb.h>
+
+   int rb_destroy(struct rb *rb);
+   int rb_cleanup(struct rb *rb);
+
+DESCRIPTION
+-----------
+|rb_destroy| will **free()** up memory allocated by |rb_new|.
+
+|rb_cleanup| does nothing unless multi-thread is enabled. You still should call
+this in every scenario in case you switch |rb_init| to multi-thread, or library
+will get updated with some cleaning code in the future.
+
+If *rb* is multi-thread enabled, functions will destroy thread related objects
+like semaphores and mutexes.
+
+Cleanup functions are safe to call only when no other thread is using *rb*
+object. This may get tricky when you want destroy ring buffer but some pesky
+thread in blocked in read or write operation. |rb_stop| will wake all those
+threads, and read/write functions will start returning with **ECANCELED**
+error. You can then join your threads and safely call cleanup function.
+
+RETURN VALUE
+------------
+0 on success or -1 on errors.
+
+ERROR
+-----
+EINVAL
+    *rb* is NULL
+
+EXAMPLE
+-------
+Stop threads before destroying ring buffer
+
+.. code-block:: c
+
+   /* consumers thread */
+   void *consumer(void *arg) {
+       for (;;) {
+           if (rb_read(rb, buf, sizeof(buf)) == -1 && errno == ECANCELED)
+               /* return from the thread */
+               return NULL;
+       }
+    }
+
+   /* producers thread */
+   void *producer(void *arg) {
+       for (;;) {
+           if (rb_write(rb, buf, sizeof(buf)) == -1 && errno == ECANCELED)
+               /* return from the thread */
+               return NULL;
+       }
+    }
+
+    /* main thread */
+    void main_loop(void) {
+        pthread_t cons, prod;
+
+        pthread_create(&cons, NULL, consumer, rb);
+        pthread_create(&prod, NULL, consumer, rb);
+
+        wait_for_exit_signal();
+
+        /* wake consumer and producer threads, rb_ functions will start
+         * returning ECANCELED errors, and threads will exit */
+        rb_stop(rb);
+
+        pthread_join(cons);
+        pthread_join(prod);
+
+        /* it's now safe to destroy buffer */
+        rb_destroy(rb);
+    }
+
+.. include:: /in/footer.in

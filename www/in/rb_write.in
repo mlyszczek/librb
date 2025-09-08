@@ -1,0 +1,166 @@
+NAME
+----
+|rb_write|, |rb_send|, |rb_write_claim|, |rb_write_commit| - write data to
+a ring buffer
+
+SYNOPSIS
+--------
+.. code-block:: c
+
+   #include <rb.h>
+
+   rb_write(struct rb *rb, const void *buffer, size_t count);
+   rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flags);
+   rb_write_claim(struct rb *rb, void **buffer, size_t *count,
+       size_t *object_size, enum rb_flags flags);
+   long rb_write_commit(struct rb *rb, size_t count);
+
+DESCRIPTION
+-----------
+|rb_write| will write *count* elements from *buffer* into *rb* ring buffer.
+Function may write less elements than requested, if buffer gets full during
+write. *count* can be 0, in those cases no data will be written, but function
+may still perform some check and return errors.
+
+If *rb* was created with **rb_dynamic** flag, function will always write a
+single object to the *rb*. In that case *count* tells how big, in bytes,
+*buffer* is. If there is not enough space in *rb* buffer, to hold whole
+*buffer*, function will not write anything and return with error.
+
+If *rb* was created with **rb_growable** and *rb* gets full during write,
+internal buffer will be increased in size by factor of 2. *rb* will not
+get increased past hard limit configured with |rb_set_hard_max_count|. If
+*rb* can no longer increase size, function will start behaving as it was no
+longer growable.
+
+If *rb* is multi-thread aware, and there is no space in *rb*, caller thread will
+be blocked until someone reads from *rb*. Function will block until all *count*
+elements have been written to ring buffer, or until error occurs that is.
+After successful read, function will wake potential thread blocked at read
+operation.
+
+|rb_send| behaves in the same way but also accepts *flags* to alter buffer
+behavior for one single call. Possible flags are:
+
+.. list-table::
+    :header-rows: 1
+
+    * - flag
+      - description
+    * - rb_dontwait
+      - Write data normally but do not block if buffer is full. Instead return
+        error.
+
+|rb_write_claim| doesn't write anything to the *rb* buffer, but instead gives
+you all the information needed for you to perform the write. On successful
+return, *buffer* will be pointing at first writable byte, and you can write
+starting at offset 0. *count* will tell you how many elements you can write
+into *buffer*. If *rb* is close to memory wrap, you may get less data than
+there is actually in the *rb* buffer. *object_size* defines size in bytes of
+a single object that can be read from *buffer*.
+
+If *rb* is multi-thread aware, function will return with locked write mutex,
+so no one else will be able to write from buffer until you call
+|rb_write_commit| and release mutex.
+
+*flags* argument accepts only *rb_dontwait* flag (only in multi-thread mode).
+
+|rb_write_commit| must be called after |rb_write_claim| with *count* being
+number of elements (not bytes) you wrote into the *buffer*. If *rb* is
+multi-thread aware, this will also wake up thread blocked in read operation.
+
+NOTES
+-----
+If *rb* has been created with both **rb_multithread** and **rb_growable**,
+and grow event is triggered, threads locked in |rb_read| may return **EAGAIN**
+error until grow operation is completed.
+
+Rationale. To grow buffer, we must have ownership of all fields, since this
+operation modifies variables used by both reading and writing operations.
+For that, growing thread must have both write and read locks. To grab the
+read lock without the risk of deadlocks, growing thread will start waking up
+blocked read threads until it can acquire read lock. Those woken threads
+will most likely be returning **EAGAIN** errors until grow operation is
+completed and order is restored.
+
+RETURN VALUE
+------------
+|rb_write| and |rb_send| will return number of elements actually written to
+the *rb* buffer. |rb_write_commit| and |rb_write_claim| return 0 on success.
+
+All functions will return -1 on errors with *errno* variable set that will
+describe an error. If error is returned no data is written to the buffer.
+
+ERRORS
+------
+All functions may return one of these on error
+
+EINVAL
+    Any of the input parameter is invalid
+
+EAGAIN
+    Ring buffer is full and function returned without writing anything. If
+    *rb* is dynamic, this will be returned when whole message cannot fit into
+    *rb*.
+
+When *rb* was created with **rb_dynamic**, these additional errors may appear
+
+EMSGSIZE
+    You tried to put too long message on buffer, and buffer cannot hold
+    information about size. You must increase object_size during initialization.
+
+When *rb* was created with **rb_growable**, these additional errors may appear
+
+ENOMEM
+    Error allocating more memory during growing operation. *rb* is still in
+    valid state. You may want to call |rb_set_hard_max_count| with current
+    *rb* size to not get this error anymore.
+
+When *rb* was created with **rb_multithread**, these additional errors may appear
+
+EAGAIN
+    |rb_clear| has been called with request to zero out all ring buffer memory
+    and no data has yet been written to *rb*.
+
+ECANCELED
+    Other thread called |rb_stop| and no data has been written.
+
+EXAMPLES
+--------
+Note that these examples do not have error handling for simplicity.
+
+Simple write. Assuming ring buffer holds simple integers.
+
+.. code-block:: c
+
+   int wr_buf[128];
+   long nwritten;
+
+   nwritten = rb_write(rb, wr_buf, sizeof(wr_buf));
+
+Write but force non blocking operation
+
+.. code-block:: c
+
+   int wr_buf[128];
+   long nwritten;
+
+   nwritten = rb_send(rb, wr_buf, sizeof(wr_buf), rb_dontwait);
+
+Claim buffer, and read data from serial line into ring buffer. Thanks to
+claim/commit we don't have to create any intermediate buffer and do double
+copying.
+
+.. code-block:: c
+
+   long nread;
+   void *buffer;
+   size_t count, object_size;
+
+   rb_write_claim(rb, &buffer, &count, &object_size, 0);
+   nread = read(serial_fd, buffer, count * object_size);
+   /* tell rb, how many bytes we actually used, read() may return
+    * less than we asked it to read */
+   rb_write_commit(rb, nread / object_size);
+
+.. include:: /in/footer.in

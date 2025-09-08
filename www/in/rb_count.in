@@ -1,0 +1,61 @@
+NAME
+----
+|rb_count|, |rb_space|, |rb_peek_size| - get information about space available
+in ring buffer.
+
+SYNOPSIS
+--------
+.. code-block:: c
+
+   #include <rb.h>
+
+   long rb_count(struct rb *rb);
+   long rb_space(struct rb *rb);
+   long rb_peek_size(struct rb *rb);
+
+RETURN VALUE
+------------
+|rb_count| returns number of elements that are currently on the ring buffer.
+Tells you how much space is taken.
+
+|rb_space| return number of elements that can be copied to ring buffer.
+Tells you how much space is left on ring buffer.
+
+|rb_peek_size| return size (in bytes) of next frame that |rb_read| will return.
+This only applies if *rb* was created with *rb_dynamic* flag.
+
+ERROR
+-----
+EINVAL
+    Passed *rb* is invalid
+
+EXAMPLE
+-------
+Check used and free space on ring buffer
+
+.. code-block:: c
+
+   long space, count;
+   struct rb *rb;
+
+   rb = rb_new(8, 1, 0);
+   space = rb_space(rb); /* will return 7 */
+   count = rb_count(rb); /* will return 0 */
+
+   rb_write(rb, buf, 4); /* write 4 bytes to rb */
+   space = rb_space(rb); /* will return 3 */
+   count = rb_count(rb); /* will return 4 */
+
+   rb_write(rb, buf, 3); /* write 3 bytes to rb */
+   space = rb_space(rb); /* will return 0 */
+   count = rb_count(rb); /* will return 7 */
+
+Check size of next frame on ring buffer
+
+.. code-block:: c
+
+   const char *s = "12345";
+   rb_write(rb, s, strlen(s));
+   size = rb_peek_size(rb); /* will return 5 */
+
+.. include:: /in/footer.in

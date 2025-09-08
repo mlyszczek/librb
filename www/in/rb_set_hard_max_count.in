@@ -1,0 +1,45 @@
+NAME
+----
+|rb_new|, |rb_init| - initialize new ring buffer
+
+SYNOPSIS
+--------
+.. code-block:: c
+
+   #include <rb.h>
+
+   int rb_set_hard_max_count(struct rb *rb, size_t count);
+
+DESCRIPTION
+-----------
+|rb_set_hard_max_count| will set a hard limit for growing *rb*. If *rb* has
+not been created with *rb_growable* this function does nothing.
+
+After init there is no limit how big *rb* can get. If you keep putting data
+on *rb*, it will grow memory until memory is exhausted. You can limit the
+grow with this function. Once limit is hit, function will fall back into
+non-growable mode. *count* must be power of 2 number just like when passing
+to |rb_new|.
+
+RETURN VALUE
+------------
+Function will return 0 on success or -1 on errors.
+
+ERROR
+-----
+EINVAL
+    *count* is not a power of 2 number, or *rb* is NULL.
+
+EXAMPLE
+-------
+.. code-block:: c
+
+   struct rb *rb = rb_new(4, 1, rb_growable);
+   rb_set_hard_max_count(rb, 8);
+   rb_write(rb, buf, 7); /* rb will grow */
+   rb_write(rb, buf, 7); /* won't grow anymore, EAGAIN return */
+
+   rb_set_hard_max_count(rb, 16);
+   rb_write(rb, buf, 7); /* rb can grow again */
+
+.. include:: /in/footer.in

@@ -1,0 +1,163 @@
+NAME
+----
+|rb_new|, |rb_init| - initialize new ring buffer
+
+SYNOPSIS
+--------
+.. code-block:: c
+
+   #include <rb.h>
+
+   struct rb *rb_new(size_t count, size_t object_size, enum rb_flags flags);
+   int rb_init(struct rb *rb, void *buf, size_t count, size_t object_size, 
+       enum rb_flags flags);
+
+DESCRIPTION
+-----------
+|rb_new| creates and initializes new ring buffer object with requested *count*
+elements and each element having *object_size* size. Function returns pointer
+to heap allocated *struct rb* object and it internally heap allocates buffer
+space. *count* must be power of 2 number, so 1, 2, 4, 8, 16 and so on, and you
+will be able to store (*count* - 1) elements on buffer. *object_size* can be
+of any size. Function will allocate (*count* * *object_size*) bytes of memory
+for the buffer. Ring buffer can be initialized with various flags, each altering
+buffer behavior. Flags can be "ored" to enable multiple of them.
+
+no flags
+    Creates classic ring buffer. Read and write calls will return with error
+    if buffer is empty or full. By default *rb* will not have any concurrency
+    awareness.
+
+.. _rb_multithread:
+
+rb_multithread
+    Enables thread awareness for the *rb* object. Read calls will now block
+    if there is no data on buffer, and write calls will block until all data
+    is sent. **librb** uses separate mutexes and semaphores for read and write
+    operations so you can perform read and write from/to ring buffer
+    simultaneously.
+
+.. _rb_nonblock:
+
+rb_nonblock
+    Can only be used with **rb_multithread** flag. Causes all calls to library
+    to never block, but return error instead.
+
+.. _rb_dynamic:
+
+rb_dynamic
+    Normally **librb** works with elements/objects instead of raw bytes, but
+    it limits you to only put that specific object on a buffer. If you create
+    dynamic object this behavior will be altered and you will be able to put
+    object of any size into a buffer. Drawback is that you will be able to
+    write and read only 1 object at a time. In this mode **librb** first
+    stores size of frame, them frame itself. **object_count** now represents
+    number of bytes that will be used to encode frame size information. Only
+    values of 1, 2, 4 and 8 (if you have int64_t) are valid here. If you set
+    **object_size** to 1, you won't be able to hold objects longer than 255
+    bytes. This will also put *rb* into bytes mode and read/write will always
+    treat buffer as byte array and not object/element (just as if you passed
+    "1" as **object_size** in normal mode)
+
+    This is basically an equivalent of doing this. In this example we will
+    be encoding frame size on 2 bytes (uint16_t)
+
+    .. code-block:: c
+
+       char *str = get_str();
+       uint16_t strlen = strlen(str);
+
+       /* manual way */
+       rb = rb_new(128, 1, 0);
+       rb_write(rb, &strlen, sizeof(uint16_t));
+       rb_write(rb, str, strlen(str));
+
+       /* automatic, dynamic way */
+       rb = rb_new(128, 2 /* object_size */, rb_dynamic);
+       rb_write(rb, str, strlen(str));
+
+    But **librb** will make sure buffer is consistent throughout the write/read
+    operations - especially in multi-thread environment.
+
+These flags can only be specified when you initialize ring buffer via |rb_new|
+function only.
+
+.. _rb_round_count:
+
+rb_round_count
+    Convenience flag, when you pass it, giving *count* that is not a power of
+    2 number, will no longer return error, but *count* will be rounded up to the
+    next power of 2 number. Good for "I want buffer at least *count* big".
+
+.. _rb_growable:
+
+rb_growable
+    When *rb* is full, |rb_write| instead of blocking or returning error,
+    will now try to increase internal buffer size, to accommodate new data.
+    You can specify hard limit for buffer with |rb_set_hard_max_count|. After
+    you reach this hard limit, *rb* will start behaving as if it wasn't
+    growable.
+
+|rb_init| is the same as |rb_new| but it never uses heap allocation. You must
+provide your own pointers for *rb* object and *buffer*. These can be static
+or stack allocated, but they must be available for the whole life of ring
+buffer.
+
+ABI considerations
+------------------
+Ring buffer header exposes **struct rb**, so that stack allocation can be
+possible. But using object this way can lead to crashes due to possible ABI
+mismatch. Using |rb_new| is safe in case of ABI changes in struct.
+
+If you have **librb** directly in your project, and you compile **librb**
+alongside your owe code, than you have no worries, and can use that struct
+and |rb_init| without problems. This will be most likely true if you use it
+in hard embedded environment using RTOS.
+
+If on the other hand you are planning to dynamically link with **librb**. Like
+you expect **librb** to be installed on a system (like normal libs on Unix).
+Then it is recommended to use |rb_new| instead, which is both safer and easier
+to use. If your system supports dynamic linking, it surely supports virtual
+memory, and so you don't have to worry about heap fragmentation.
+
+NOTE: even on hard embedded system it is safe to use heap allocation. You just
+have to make sure you don't plan on freeing the memory, and be sure to allocate
+all resources during boot process.
+
+RETURN VALUE
+------------
+|rb_new| will return valid pointer on success or NULL on errors.
+|rb_init| will return 0 on success and -1 on errors.
+
+ERRORS
+------
+EINVAL
+    Invalid parameter passed. Like invalid *count* or **rb_round_count** or
+    **rb_growable** while using |rb_init|.
+
+|rb_new| may additionally return
+
+ENOMEM
+    Failed to allocate memory on heap.
+
+Multi-thread environment may also return errors from **sem_init** or
+**pthread_mutex_init**.
+
+EXAMPLES
+--------
+Create new, simple ring buffer that can hold 7 integers
+
+.. code-block:: c
+
+   struct rb *rb = rb_new(8, sizeof(int), 0);
+
+Do the same but using stack allocation and |rb_init|
+
+.. code-block:: c
+
+   struct rb rb;
+   int buffer[8];
+
+   rb_init(&rb, buffer, rb_array_size(buffer), sizeof(*buffer), 0);
+
+.. include:: /in/footer.in
