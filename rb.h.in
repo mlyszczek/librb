@@ -1,7 +1,9 @@
 /* ==========================================================================
-    Licensed under BSD 2clause license. See LICENSE file for more information
-    Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
-   ========================================================================== */
+ *  Licensed under BSD 2clause license. See LICENSE file for more information
+ *  Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
+ * ==========================================================================
+ *  librb-v9999
+ * ========================================================================== */
 #ifndef LIBRB_H
 #define LIBRB_H 1
 
@@ -72,13 +74,19 @@ enum rb_flags
 	rb_dynamic     = 1 <<  6,
 };
 
+#if ENABLE_THREADS
+typedef atomic_size_t rb_size_t;
+#else
+typedef size_t rb_size_t;
+#endif
+
 struct rb
 {
-	atomic_size_t    head;        /* pointer to buffer's head */
-	atomic_size_t    tail;        /* pointer to buffer's tail */
-	atomic_size_t    count;       /* maximum number of elements in buffer */
-	atomic_size_t    max_count;   /* hard limit count, when rb_growable is set */
-	atomic_size_t    object_size; /* size of a single object in buffer */
+	rb_size_t        head;        /* pointer to buffer's head */
+	rb_size_t        tail;        /* pointer to buffer's tail */
+	rb_size_t        count;       /* maximum number of elements in buffer */
+	rb_size_t        max_count;   /* hard limit count, when rb_growable is set */
+	rb_size_t        object_size; /* size of a single object in buffer */
 	enum rb_flags    flags;       /* flags used with buffer */
 	unsigned char   *buffer;      /* pointer to ring buffer in memory */
 

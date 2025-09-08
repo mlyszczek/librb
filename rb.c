@@ -1,6 +1,8 @@
 /* ==========================================================================
-    Licensed under BSD 2clause license. See LICENSE file for more information
-    Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
+ *  Licensed under BSD 2clause license. See LICENSE file for more information
+ *  Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
+ * ==========================================================================
+ *  librb-v9999
  * ==========================================================================
  *                       ░▀█▀░█▀█░█▀▀░█░░░█░█░█▀▄░█▀▀░█▀▀
  *                       ░░█░░█░█░█░░░█░░░█░█░█░█░█▀▀░▀▀█
@@ -612,7 +614,6 @@ static long rb_recvs(struct rb *rb, void *buffer, size_t count, enum rb_flags fl
 
 	VALID(EINVAL, rb);
 	VALID(EINVAL, buffer);
-	VALID(EINVAL, rb->buffer);
 
 	if (rb_count(rb) == 0)
 		return_errno(-1, EAGAIN);
@@ -843,10 +844,11 @@ long rb_read(struct rb *rb, void *buffer, size_t count)
  * ========================================================================== */
 long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 {
+#if ENABLE_THREADS
 	int e;
+#endif
 	VALID(EINVAL, rb);
 	VALID(EINVAL, buffer);
-	VALID(EINVAL, rb->buffer);
 
 	if (count == 0)
 		return 0;
@@ -996,7 +998,7 @@ static int rb_dynamic_write_count(struct rb *rb, size_t count)
 	return 0;
 }
 
-
+#if ENABLE_THREADS
 /** =========================================================================
  * Perform dynamic write operation.
  *
@@ -1029,7 +1031,6 @@ static int rb_dynamic_write(struct rb *rb, const void *buffer, size_t count)
 	return 0;
 }
 
-#if ENABLE_THREADS
 /** =========================================================================
  * Check if buffer of size #count can be written.
  *
@@ -1222,7 +1223,6 @@ static long rb_sends(struct rb *rb, const void *buffer, size_t count)
 
 	VALID(EINVAL, rb);
 	VALID(EINVAL, buffer);
-	VALID(EINVAL, rb->buffer);
 
 	if (!RB_IS_GROWABLE(rb) && rb_space(rb) == 0)
 		return_errno(-1, EAGAIN);
@@ -1275,9 +1275,9 @@ static long rb_sends(struct rb *rb, const void *buffer, size_t count)
  * ========================================================================== */
 long rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flags)
 {
+	(void)flags;
 	VALID(EINVAL, rb);
 	VALID(EINVAL, buffer);
-	VALID(EINVAL, rb->buffer);
 
 	if (count == 0)
 		return 0;
@@ -1362,8 +1362,8 @@ long rb_write(struct rb *rb, const void *buffer, size_t count)
 long rb_write_claim(struct rb *rb, void **buffer, size_t *count,
 	size_t *object_size, enum rb_flags flags)
 {
+	(void)flags;
 	VALID(EINVAL, rb);
-	VALID(EINVAL, rb->buffer);
 	VALID(EINVAL, buffer);
 	VALID(EINVAL, count);
 	VALID(EINVAL, object_size);
@@ -1400,7 +1400,6 @@ long rb_write_claim(struct rb *rb, void **buffer, size_t *count,
 long rb_write_commit(struct rb *rb, size_t count)
 {
 	VALID(EINVAL, rb);
-	VALID(EINVAL, rb->buffer);
 
 	rb_increase_head(rb, count);
 
@@ -1449,8 +1448,8 @@ long rb_write_commit(struct rb *rb, size_t count)
 long rb_read_claim(struct rb *rb, void **buffer, size_t *count,
 	size_t *object_size, enum rb_flags flags)
 {
+	(void)flags;
 	VALID(EINVAL, rb);
-	VALID(EINVAL, rb->buffer);
 	VALID(EINVAL, buffer);
 	VALID(EINVAL, count);
 	VALID(EINVAL, object_size);
@@ -1487,7 +1486,6 @@ long rb_read_claim(struct rb *rb, void **buffer, size_t *count,
 long rb_read_commit(struct rb *rb, size_t count)
 {
 	VALID(EINVAL, rb);
-	VALID(EINVAL, rb->buffer);
 
 	rb_increase_tail(rb, count);
 
@@ -1506,10 +1504,11 @@ long rb_read_commit(struct rb *rb, size_t count)
 /** =========================================================================
  * Clears all data in the buffer
  *
- * Normally function do quick clean - only sets head and tail variables to
+ * Normally function do quick clean - only sets tail = head variable to
  * indicate buffer is free. If #clear is set to 1, function will also zero
  * out all ring buffer memory - in case you want to remove some confidential
- * data from memory.
+ * data from memory. On multi-thread this will wake up threads blocked on
+ * write, and these functions may return error during operation.
  *
  * @param rb ring buffer object
  * @param clear if set to 1, will also clear memory
@@ -1519,23 +1518,38 @@ long rb_read_commit(struct rb *rb, size_t count)
  * ========================================================================== */
 int rb_clear(struct rb *rb, int clear)
 {
+	size_t objsize;
+
 	VALID(EINVAL, rb);
-	VALID(EINVAL, rb->buffer);
+
+	objsize = RB_IS_DYNAMIC(rb) ? 1 : rb->object_size;
 
 #if ENABLE_THREADS
+	if (rb->tail == rb->head)
+		return 0;
+
 	if (rb->flags & rb_multithread)
 		lock(rb->rlock);
-#endif
 
-	if (clear)
-		memset(rb->buffer, 0x00, rb->count * rb->object_size);
+	rb->tail = rb->head;
 
-	rb->head = 0;
-	rb->tail = 0;
+	if (clear) {
+		rb->force_exit = EAGAIN;
+		while (pthread_mutex_trylock(&rb->wlock))
+			rb_sem_post(&rb->write_sem);
 
-#if ENABLE_THREADS
+		memset(rb->buffer, 0x00, rb->count * objsize);
+
+		rb->force_exit = 0;
+		unlock(rb->wlock);
+	}
+
 	if (rb->flags & rb_multithread)
 		unlock(rb->rlock);
+#else
+	rb->tail = rb->head;
+	if (clear)
+		memset(rb->buffer, 0x00, rb->count * objsize);
 #endif
 
 	return 0;
@@ -1589,6 +1603,8 @@ int rb_stop(struct rb *rb)
  * ========================================================================== */
 int rb_cleanup(struct rb *rb)
 {
+	VALID(EINVAL, rb);
+
 #if ENABLE_THREADS
 	if ((rb->flags & rb_multithread) == 0)
 		return 0;
@@ -1614,7 +1630,6 @@ int rb_cleanup(struct rb *rb)
 int rb_destroy(struct rb *rb)
 {
 	VALID(EINVAL, rb);
-	VALID(EINVAL, rb->buffer);
 
 	rb_cleanup(rb);
 	free(rb->buffer);
@@ -1637,7 +1652,9 @@ long rb_discard(struct rb *rb, size_t count)
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 	VALID(EINVAL, rb);
-	VALID(EINVAL, rb->buffer);
+
+	if (rb->tail == rb->head)
+		return 0;
 
 #if ENABLE_THREADS
 	if (rb->flags & rb_multithread)
@@ -1670,7 +1687,6 @@ long rb_discard(struct rb *rb, size_t count)
 long rb_count(struct rb *rb)
 {
 	VALID(EINVAL, rb);
-	VALID(EINVAL, rb->buffer);
 
 	return (rb->head - rb->tail) & (rb->count - 1);
 }
@@ -1687,7 +1703,6 @@ long rb_count(struct rb *rb)
 long rb_space(struct rb *rb)
 {
 	VALID(EINVAL, rb);
-	VALID(EINVAL, rb->buffer);
 
 	return (rb->tail - (rb->head + 1)) & (rb->count - 1);
 }
@@ -1724,7 +1739,6 @@ long rb_peek_size(struct rb *rb)
 int rb_set_hard_max_count(struct rb *rb, size_t count)
 {
 	VALID(EINVAL, rb);
-	VALID(EINVAL, rb->buffer);
 	VALID(EINVAL, rb_is_power_of_two(count));
 
 	if (rb->flags & rb_dynamic)

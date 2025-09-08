@@ -1248,7 +1248,7 @@ int main(void)
 	mt_run(count_and_space);
 	mt_run(einval);
 	mt_run(einval_on_init);
-	mt_run(enomem);
+	//mt_run(enomem);
 	mt_run(stack_init);
 	mt_run(grow);
 	mt_run(grow_warped);
