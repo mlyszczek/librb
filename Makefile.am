@@ -34,13 +34,14 @@ analyze: $(analyze_plists)
 endif
 
 # building website and manuals
-SUBDIRS = man www examples
-EXTRA_DIST = gen-download-page.sh man2html.sh readme.md tap-driver.sh
+SUBDIRS = www examples
+EXTRA_DIST = readme.rst tap-driver.sh
 
 www:
-	./gen-download-page.sh
-	./man2html.sh
-	make www -C www
+	make html -C www
+
+doc:
+	make man -C www
 
 examples:
 	make examples -C examples
@@ -54,4 +55,4 @@ endif
 
 clean-local: $(clean_targets)
 
-.PHONY: examples clean_www www analyze tests librb.la
+.PHONY: examples clean_www www doc analyze tests librb.la

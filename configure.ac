@@ -1,18 +1,14 @@
-AC_INIT([librb], [1.1.0], [michal.lyszczek@bofc.pl])
+AC_INIT([librb], [9999], [michal.lyszczek@bofc.pl])
 AM_INIT_AUTOMAKE([foreign])
 AC_PROG_CC
 AC_PROG_LIBTOOL
 AC_CONFIG_MACRO_DIR([m4])
-AC_CONFIG_FILES([Makefile man/Makefile www/Makefile examples/Makefile])
+AC_CONFIG_FILES([Makefile www/Makefile examples/Makefile])
 AC_CONFIG_SRCDIR([configure.ac])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_FILES(rb.h)
 
 AC_CHECK_HEADERS([assert.h errno.h stddef.h stdlib.h string.h])
-
-
-# solaris needs to link against libsocket
-AC_SEARCH_LIBS([socket], [socket])
 
 # gcov coverage reporting
 m4_include([m4/gcov.m4])
