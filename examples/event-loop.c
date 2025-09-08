@@ -5,7 +5,7 @@
  *       -------------------------------------------------------------
  *      / This example shows how to use librb as simple event queue.  \
  *      | Idea is that multiple threads gather different events from  |
- *      | different sources and pass them to rb objectQ and main      |
+ *      | different sources and pass them to rb object and main       |
  *      | thread reads them and process them one by one. This is nice |
  *      \ way to process data asynchronously without polling.         /
  *       -------------------------------------------------------------
