@@ -3,7 +3,7 @@
     Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
    ==========================================================================
            __________________________________________________________
-          /                      mtest v1.4.1                        \
+          /                      mtest v1.4.2                        \
           |                  https://mtest.bofc.pl                   |
           |                                                          |
           |    Simple test framework that uses TAP output format     |
@@ -28,6 +28,7 @@
 
 
 #include <stdio.h>
+#include <stdatomic.h>
 
 
 /* ==========================================================================
@@ -46,11 +47,11 @@
 
 #define mt_defs() \
 	const char *curr_test; \
-	int mt_test_status; \
-	int mt_total_tests = 0; \
-	int mt_total_failed = 0; \
-	int mt_total_checks = 0; \
-	int mt_checks_failed = 0; \
+	atomic_int mt_test_status; \
+	atomic_int mt_total_tests = 0; \
+	atomic_int mt_total_failed = 0; \
+	atomic_int mt_total_checks = 0; \
+	atomic_int mt_checks_failed = 0; \
 	static void (*mt_prepare_test)(void); \
 	static void (*mt_cleanup_test)(void)
 
@@ -64,11 +65,11 @@
 
 #define mt_defs_ext()\
 	extern const char *curr_test; \
-	extern int mt_test_status; \
-	extern int mt_total_tests; \
-	extern int mt_total_failed; \
-	extern int mt_total_checks; \
-	extern int mt_checks_failed; \
+	extern atomic_int mt_test_status; \
+	extern atomic_int mt_total_tests; \
+	extern atomic_int mt_total_failed; \
+	extern atomic_int mt_total_checks; \
+	extern atomic_int mt_checks_failed; \
 	static void (*mt_prepare_test)(void); \
 	static void (*mt_cleanup_test)(void)
 
