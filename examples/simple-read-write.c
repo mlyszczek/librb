@@ -1,24 +1,6 @@
 /* ==========================================================================
  *  Licensed under BSD 2clause license See LICENSE file for more information
  *  Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
- * ==========================================================================
- *       -------------------------------------------------------------
- *      / This example shows the simplest use of librb - that is, put \
- *      \ some data on it, then read it, then print it                /
- *       -------------------------------------------------------------
- *                \      (__)
- *                 \     /oo|
- *                  \   (_"_)*+++++++++*
- *                         //I#\\\\\\\\I\
- *                         I[I|I|||||I I `
- *                         I`I'///'' I I
- *                         I I       I I
- *                         ~ ~       ~ ~
- *                           Scowleton
- * ==========================================================================
- *                       ░▀█▀░█▀█░█▀▀░█░░░█░█░█▀▄░█▀▀░█▀▀
- *                       ░░█░░█░█░█░░░█░░░█░█░█░█░█▀▀░▀▀█
- *                       ░▀▀▀░▀░▀░▀▀▀░▀▀▀░▀▀▀░▀▀░░▀▀▀░▀▀▀
  * ========================================================================== */
 #include <string.h>
 #include <stdio.h>
@@ -28,22 +10,17 @@
 
 #define STACK_ALLOCATION 1
 
-/* ==========================================================================
- *                               ░█▄█░█▀█░▀█▀░█▀█
- *                               ░█░█░█▀█░░█░░█░█
- *                               ░▀░▀░▀░▀░▀▀▀░▀░▀
- * ========================================================================== */
 int main(void)
 {
+#if STACK_ALLOCATION
+	struct rb   rbs;                 /* stack allocated ring buffer object */
+	int         buffer[128];         /* buffer to hold 128 integers */
+#endif
 	struct rb  *rb;                  /* pointer to new rb object */
 	long        nwritten;            /* return value from rb_write() */
 	long        nread;               /* return value from rb_read() */
 	int         data_to_write[256];  /* data to write into rb buffer */
 	int         data_read[256];      /* buffer where we will read from rb */
-#if STACK_ALLOCATION
-	struct rb   rbs;                 /* stack allocated ring buffer object */
-	int         buffer[128];         /* buffer to hold 128 integers */
-#endif
 	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
 	/* You can use stack or heap allocations. Pick your poison. */
@@ -71,12 +48,20 @@ int main(void)
 	nwritten = rb_write(rb, data_to_write, rb_array_size(data_to_write));
 	printf("number of elements stored to rb: %ld\n", nwritten);
 
+	/* buffer is now full, any write to it will result in error */
+	if (rb_write(rb, data_read, 1) == -1)
+		perror("rb_write() returned error");
+
 	/* now we read maximum of 256 elements from rb to data_read buffer, but
 	 * since we put 127 elements in rb, only 127 elements will be copied
 	 * back to #data_read */
 	memset(data_read, 0x00, sizeof(data_read));
 	nread = rb_read(rb, data_read, rb_array_size(data_read));
 	printf("number of elements read from rb: %ld\n", nread);
+
+	/* buffer is now empty, any read from it will result in error */
+	if (rb_read(rb, data_read, 1) == -1)
+		perror("rb_write() returned error");
 
 	/* check if data read matches what we've just put on buffer */
 	printf("Checking if data matches... data %s\n",
