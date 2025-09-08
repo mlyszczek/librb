@@ -6,7 +6,7 @@ nodist_include_HEADERS = rb.h
 
 lib_LTLIBRARIES = librb.la
 librb_la_SOURCES = rb.c
-librb_la_LDFLAGS = -version-info 2:0:1
+librb_la_LDFLAGS = -version-info 2:0:0
 librb_la_CFLAGS = -I$(top_srcdir)
 
 # building test suite

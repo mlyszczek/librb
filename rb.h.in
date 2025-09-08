@@ -2,7 +2,7 @@
  *  Licensed under BSD 2clause license. See LICENSE file for more information
  *  Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
  * ==========================================================================
- *  librb-v9999
+ *  librb-v2.0.0
  * ========================================================================== */
 #ifndef LIBRB_H
 #define LIBRB_H 1
