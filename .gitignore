@@ -29,6 +29,8 @@ examples/prod_cons_threads
 examples/simple_read_write
 install-sh
 librb-*.tar.gz
+librb-*.tar.xz
+librb-*.tar.bzip2
 librb-*.tar.gz.sha1
 libtool
 ltmain.sh

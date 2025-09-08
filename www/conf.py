@@ -42,7 +42,7 @@ html_css_files = [
 html_theme_options = {
 	'github_user': 'mlyszczek',
 	'github_repo': 'librb',
-	'github_banner': True,
+	'github_banner': 'strip-fork-me-on-github.png',
 	'github_type': 'star',
 	'page_width': '103ch',
 	'code_font_family': 'JetBrains Mono',
