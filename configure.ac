@@ -3,7 +3,7 @@ AM_INIT_AUTOMAKE([foreign])
 AC_PROG_CC
 AC_PROG_LIBTOOL
 AC_CONFIG_MACRO_DIR([m4])
-AC_CONFIG_FILES([Makefile www/Makefile examples/Makefile])
+AC_CONFIG_FILES([Makefile])
 AC_CONFIG_SRCDIR([configure.ac])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_FILES(rb.h)
@@ -40,6 +40,21 @@ AS_IF([test "x$enable_threads" = "xyes"],
 ])
 AC_SUBST(ENABLE_THREADS)
 
+# --enable-docs
+AC_ARG_ENABLE([docs],
+	AS_HELP_STRING([--enable-docs], [Build man pages and html docs]),
+    [enable_docs="yes"], [enable_docs="no"])
+AM_CONDITIONAL([ENABLE_DOCS], [test "x$enable_docs" = "xyes"])
+#AS_IF([test "x$enable_docs" = "xyes"],
+#[
+#    AC_DEFINE([BUILD_DOCS], [1], [Build man pages and html docs])
+#],
+## else
+#[
+#    enable_docs="no"
+#])
+
+
 # --enable-trace
 AC_ARG_ENABLE([trace],
     AS_HELP_STRING([--enable-trace], [Enable trace logging from librb]),
@@ -67,3 +82,4 @@ echo "librb compilation configuration summary"
 echo
 echo "enable threads.........: $enable_threads"
 echo "enable trace messages..: $enable_trace"
+echo "build docs.............: $enable_docs"
