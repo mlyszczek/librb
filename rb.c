@@ -120,7 +120,7 @@ static void rb_make_shallow_copy(const struct rb *rb, struct rb *dummy)
 #if ENABLE_THREADS
 static int rb_trylock(struct rb *rb, int flags, pthread_mutex_t *mutex)
 {
-	trace("try lock %s", mutex == &rb->wlock ? "write" : "read");
+	trace("try lock %s", mutex == &rb->write_lock ? "write" : "read");
 	if (RB_IS_BLOCKING(rb, flags))
 		pthread_mutex_lock(mutex);
 	else
@@ -387,17 +387,14 @@ static int rb_init_p(struct rb *rb, void *buf, size_t count,
 
 	VALIDGO(errno, error_rsem, sem_init(&rb->read_sem, 0, 0) == 0);
 	VALIDGO(errno, error_wsem, sem_init(&rb->write_sem, 0, 1) == 0);
-	VALIDGO(e, error_lock,  (e = pthread_mutex_init(&rb->lock, NULL)) == 0);
-	VALIDGO(e, error_rlock, (e = pthread_mutex_init(&rb->rlock, NULL)) == 0);
-	VALIDGO(e, error_wlock, (e = pthread_mutex_init(&rb->wlock, NULL)) == 0);
+	VALIDGO(e, error_rlock, (e = pthread_mutex_init(&rb->read_lock, NULL)) == 0);
+	VALIDGO(e, error_wlock, (e = pthread_mutex_init(&rb->write_lock, NULL)) == 0);
 
 	return 0;
 
 error_wlock:
-	pthread_mutex_destroy(&rb->rlock);
+	pthread_mutex_destroy(&rb->read_lock);
 error_rlock:
-	pthread_mutex_destroy(&rb->lock);
-error_lock:
 	sem_close(&rb->write_sem);
 	errno = e;
 error_wsem:
@@ -408,8 +405,8 @@ error_rsem:
 }
 
 /** =========================================================================
- * Initializes new ring buffer object like rb_new but does not use dynamic
- * memory allocation, you must instead provide pointers to struct rb, and
+ * Initializes new ring buffer object but does not use dynamic memory
+ * allocation, you must instead provide pointers to struct rb, and
  * buffer where data will be stored
  *
  * @param rb ring buffer to initialize
@@ -420,8 +417,12 @@ error_rsem:
  *
  * @return 0 on success, otherwise -1 is returned
  * 
+ * @exception EINVAL count is not a power of 2 value
  * @exception EINVAL rb_round_count flag passed
  * @exception EINVAL rb_growable flag passed
+ * @exception EINVAL rb or buf is NULL
+ * @exception EINVAL rb_dynamic flag passed, but object_size is not valid
+ *            integer size
  * ========================================================================== */
 int rb_init(struct rb *rb, void *buf, size_t count, size_t object_size,
 	enum rb_flags flags)
@@ -445,6 +446,9 @@ int rb_init(struct rb *rb, void *buf, size_t count, size_t object_size,
  * @param flags flags to create buffer with
  *
  * @return 0 on success, otherwise -1 is returned
+ * @exception EINVAL count is not a power of 2 value
+ * @exception EINVAL rb_dynamic flag passed, but object_size is not valid
+ *            integer size
  * ========================================================================== */
 struct rb *rb_new(size_t count, size_t object_size, enum rb_flags flags)
 {
@@ -744,20 +748,20 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 	nread = 0;
 	buf = buffer;
 
-	if (rb_trylock(rb, flags, &rb->rlock))
+	if (rb_trylock(rb, flags, &rb->read_lock))
 		return -1;
 	trace("count: %zu, flags: %u", count, flags);
 
 	while (count) {
 		if (rb_wait_for_data(rb, count, nread, flags)) {
-			unlock(rb->rlock);
+			unlock(rb->read_lock);
 			trace("ret, nread: %zu", nread);
 			return nread ? nread : -1;
 		}
 
 		if ((e = rb->force_exit)) {
 			/* ring buffer is going down operations on buffer are not allowed */
-			unlock(rb->rlock);
+			unlock(rb->read_lock);
 			trace("force exit %d nread %ld", e, nread);
 			errno = e;
 			return nread ? nread : -1;
@@ -783,7 +787,7 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
 		rb_sem_post(&rb->write_sem);
 	}
 
-	unlock(rb->rlock);
+	unlock(rb->read_lock);
 	trace("ret nread %zu", nread);
 	return nread;
 }
@@ -868,10 +872,10 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 		 * single thread, as it will not modify data, and will not cause
 		 * deadlock */
 		trace("try lock peeking read");
-		if (pthread_mutex_trylock(&rb->rlock))
+		if (pthread_mutex_trylock(&rb->read_lock))
 			return_errno(-1, EAGAIN);
 		count = rb_recvs(rb, buffer, count, flags);
-		unlock(rb->rlock);
+		unlock(rb->read_lock);
 		return count;
 	}
 
@@ -1081,11 +1085,11 @@ static int rb_wait_for_space(struct rb *rb, size_t count, enum rb_flags flags)
 			int ret;
 
 			rb->force_exit = EAGAIN;
-			while (pthread_mutex_trylock(&rb->rlock))
+			while (pthread_mutex_trylock(&rb->read_lock))
 				rb_sem_post(&rb->read_sem);
 			ret = rb_grow(rb);
 			rb->force_exit = 0;
-			unlock(rb->rlock);
+			unlock(rb->read_lock);
 
 			if (ret)
 				return_errno(-1, ENOMEM);
@@ -1143,19 +1147,19 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 	buf = buffer;
 	trace("count: %zu, flags: %u", count, flags);
 
-	if (rb_trylock(rb, flags, &rb->wlock))
+	if (rb_trylock(rb, flags, &rb->write_lock))
 		return -1;
 
 	while (count) {
 		if (rb_wait_for_space(rb, count, flags)) {
-			unlock(rb->wlock);
+			unlock(rb->write_lock);
 			trace("ret, nwritten: %zu", nwritten);
 			return nwritten ? nwritten : -1;
 		}
 
 		if (rb->force_exit) {
 			/* ring buffer is going down operations on buffer are not allowed */
-			unlock(rb->wlock);
+			unlock(rb->write_lock);
 			trace("force exit");
 			errno = ECANCELED;
 			return nwritten ? nwritten : -1;
@@ -1166,7 +1170,7 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 			/* in dynamic mode, we can only write all or nothing, and
 			 * at this point we know there is enough space in #rb */
 			if (rb_dynamic_write(rb, buffer, count)) {
-				unlock(rb->wlock);
+				unlock(rb->write_lock);
 				return_errno(-1, EMSGSIZE);
 			}
 			nwritten += count;
@@ -1187,7 +1191,7 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
 		rb_sem_post(&rb->read_sem);
 	}
 
-	unlock(rb->wlock);
+	unlock(rb->write_lock);
 	trace("ret nwritten %zu", nwritten);
 	return nwritten;
 }
@@ -1345,7 +1349,7 @@ long rb_write(struct rb *rb, const void *buffer, size_t count)
  *
  * If multi-thread #rb is used, function will block like #rb_send until
  * space is available on #rb. After function finishes, you will be the owner
- * of #rb->wlock mutex, so no one will interfere with your writing.
+ * of #rb->write_lock mutex, so no one will interfere with your writing.
  *
  * @note that #count does not describe #buffer size in bytes, but in "elements".
  *       #buffer size in bytes is #count * #object_size
@@ -1370,7 +1374,7 @@ long rb_write_claim(struct rb *rb, void **buffer, size_t *count,
 
 #if ENABLE_THREADS
 	if (rb->flags & rb_multithread) {
-		if (rb_trylock(rb, flags, &rb->wlock))
+		if (rb_trylock(rb, flags, &rb->write_lock))
 			return -1;
 		if (rb_wait_for_space(rb, 1, flags))
 			return -1;
@@ -1407,7 +1411,7 @@ long rb_write_commit(struct rb *rb, size_t count)
 	if (rb->flags & rb_multithread) {
 		if (count)
 			rb_sem_post(&rb->read_sem);
-		unlock(rb->wlock);
+		unlock(rb->write_lock);
 	}
 #endif
 
@@ -1431,7 +1435,7 @@ long rb_write_commit(struct rb *rb, size_t count)
  *
  * If multi-thread #rb is used, function will block like #rb_read until
  * data is available on #rb. After function finishes, you will be the owner
- * of #rb->rlock mutex, so no one will interfere with your reading.
+ * of #rb->read_lock mutex, so no one will interfere with your reading.
  *
  * @note that #count does not describe #buffer size in bytes, but in "elements".
  *       #buffer size in bytes is #count * #object_size
@@ -1456,7 +1460,7 @@ long rb_read_claim(struct rb *rb, void **buffer, size_t *count,
 
 #if ENABLE_THREADS
 	if (rb->flags & rb_multithread) {
-		if (rb_trylock(rb, flags, &rb->rlock))
+		if (rb_trylock(rb, flags, &rb->read_lock))
 			return -1;
 		if (rb_wait_for_data(rb, 1, 0, flags))
 			return -1;
@@ -1493,7 +1497,7 @@ long rb_read_commit(struct rb *rb, size_t count)
 	if (rb->flags & rb_multithread) {
 		if (count)
 			rb_sem_post(&rb->write_sem);
-		unlock(rb->rlock);
+		unlock(rb->read_lock);
 	}
 #endif
 
@@ -1529,23 +1533,23 @@ int rb_clear(struct rb *rb, int clear)
 		return 0;
 
 	if (rb->flags & rb_multithread)
-		lock(rb->rlock);
+		lock(rb->read_lock);
 
 	rb->tail = rb->head;
 
 	if (clear) {
 		rb->force_exit = EAGAIN;
-		while (pthread_mutex_trylock(&rb->wlock))
+		while (pthread_mutex_trylock(&rb->write_lock))
 			rb_sem_post(&rb->write_sem);
 
 		memset(rb->buffer, 0x00, rb->count * objsize);
 
 		rb->force_exit = 0;
-		unlock(rb->wlock);
+		unlock(rb->write_lock);
 	}
 
 	if (rb->flags & rb_multithread)
-		unlock(rb->rlock);
+		unlock(rb->read_lock);
 #else
 	rb->tail = rb->head;
 	if (clear)
@@ -1611,9 +1615,8 @@ int rb_cleanup(struct rb *rb)
 
 	sem_close(&rb->write_sem);
 	sem_close(&rb->read_sem);
-	pthread_mutex_destroy(&rb->lock);
-	pthread_mutex_destroy(&rb->rlock);
-	pthread_mutex_destroy(&rb->wlock);
+	pthread_mutex_destroy(&rb->read_lock);
+	pthread_mutex_destroy(&rb->write_lock);
 #endif
 
 	return 0;
@@ -1658,7 +1661,7 @@ long rb_discard(struct rb *rb, size_t count)
 
 #if ENABLE_THREADS
 	if (rb->flags & rb_multithread)
-		if (pthread_mutex_trylock(&rb->rlock))
+		if (pthread_mutex_trylock(&rb->read_lock))
 			return_errno(-1, EAGAIN);
 #endif
 
@@ -1669,7 +1672,7 @@ long rb_discard(struct rb *rb, size_t count)
 
 #if ENABLE_THREADS
 	if (rb->flags & rb_multithread)
-		unlock(rb->rlock);
+		unlock(rb->read_lock);
 #endif
 
 	return (long)count;
