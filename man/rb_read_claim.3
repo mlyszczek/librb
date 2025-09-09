@@ -1,0 +1,212 @@
+'\" t
+.\" Man page generated from reStructuredText.
+.
+.
+.nr rst2man-indent-level 0
+.
+.de1 rstReportMargin
+\\$1 \\n[an-margin]
+level \\n[rst2man-indent-level]
+level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
+-
+\\n[rst2man-indent0]
+\\n[rst2man-indent1]
+\\n[rst2man-indent2]
+..
+.de1 INDENT
+.\" .rstReportMargin pre:
+. RS \\$1
+. nr rst2man-indent\\n[rst2man-indent-level] \\n[an-margin]
+. nr rst2man-indent-level +1
+.\" .rstReportMargin post:
+..
+.de UNINDENT
+. RE
+.\" indent \\n[an-margin]
+.\" old: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.nr rst2man-indent-level -1
+.\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.in \\n[rst2man-indent\\n[rst2man-indent-level]]u
+..
+.TH "RB_READ_CLAIM" "3" "Sep 09, 2025" "" "librb"
+.SH NAME
+.sp
+\fBrb_read\fP, \fBrb_recv\fP, \fBrb_read_claim\fP, \fBrb_read_commit\fP \- read data from
+a ring buffer.
+.SH SYNOPSIS
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+#include <rb.h>
+
+long rb_read(struct rb *rb, void *buffer, size_t count);
+long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags);
+long rb_read_claim(struct rb *rb, void **buffer, size_t *count,
+    size_t *object_size, enum rb_flags flags);
+long rb_read_commit(struct rb *rb, size_t count);
+.EE
+.UNINDENT
+.UNINDENT
+.SH DESCRIPTION
+.sp
+\fI\%rb_read(3)\fP will read \fIcount\fP objects from \fIrb\fP buffer and copy them to \fIbuffer\fP\&.
+\fIbuffer\fP must be big enough to hold \fIcount\fP elements of size that was configured
+during \fIrb\fP initialization (via \fIobject_size\fP). Hence, \fIbuffer\fP should be at
+least (\fIcount\fP * \fIrb\->object_size\fP) big. Function may read less elements than
+requested if there was not enough data in \fIrb\fP\&. \fIcount\fP can be 0, in those
+cases no data will be written, but function may still perform some check and
+return errors.
+.sp
+If \fIrb\fP was created with \fBrb_dynamic\fP flag, function will always read a single
+object from the \fIrb\fP\&. In that case \fIcount\fP tells how big, in bytes, \fIbuffer\fP is.
+If \fIcount\fP is not big enough to hold whole frame, function will return error.
+.sp
+If \fIrb\fP is multi\-thread aware, and there is no data in \fIrb\fP, caller thread will
+be blocked until someone writes to \fIrb\fP\&. Function still can read less than
+requested number of elements, and will not block until all \fIcount\fP elements
+is read. If at least 1 element is read until buffer gets empty, function will
+not block. After successful read, function will wake potential thread blocked
+at write operation.
+.sp
+\fI\%rb_recv(3)\fP behaves in the same way but also accepts \fIflags\fP to alter buffer
+behavior for one single call. Possible flags are:
+.TS
+box center;
+l|l.
+T{
+flag
+T}	T{
+description
+T}
+_
+T{
+rb_peek
+T}	T{
+Read data normally, but do not remove it from the \fIrb\fP buffer. When
+that flag is passed, function will never block, and if there is no
+data on the buffer, error will be returned.
+T}
+_
+T{
+rb_dontwait
+T}	T{
+Read data normally but do not block if buffer is empty. Instead return
+error.
+T}
+.TE
+.sp
+\fI\%rb_read_claim(3)\fP doesn\(aqt read anything from the \fIrb\fP buffer, but instead gives
+you all the information needed for you to perform the read. On successful
+return, \fIbuffer\fP will be pointing at first readable byte, and you can read
+starting at offset 0. \fIcount\fP will tell you how many elements you can read
+from \fIbuffer\fP\&. If \fIrb\fP is close to memory wrap, you may get less data than
+there is actually in the \fIrb\fP buffer. \fIobject_size\fP defines size in bytes of
+a single object that can be read from \fIbuffer\fP\&.
+.sp
+If \fIrb\fP is multi\-thread aware, function will return with locked read mutex,
+so no one else will be able to read from buffer until you call \fI\%rb_read_commit(3)\fP
+and release mutex.
+.sp
+\fIflags\fP argument accepts only \fIrb_dontwait\fP flag (only in multi\-thread mode).
+.sp
+\fI\%rb_read_commit(3)\fP must be called after \fI\%rb_read_claim(3)\fP with \fIcount\fP being
+number of elements (not bytes) you read from the \fIbuffer\fP\&. If \fIrb\fP is
+multi\-thread aware, this will also wake up thread blocked in write operation.
+.SH RETURN VALUE
+.sp
+\fI\%rb_read(3)\fP and \fI\%rb_recv(3)\fP will return number of elements actually read from
+ring buffer. \fI\%rb_read_commit(3)\fP and \fI\%rb_read_claim(3)\fP return 0 on success.
+.sp
+All functions will return \-1 on errors with \fIerrno\fP variable set that will
+describe an error. If error is returned no data is removed from the buffer.
+.SH ERRORS
+.sp
+All functions may return one of these on error
+.INDENT 0.0
+.TP
+.B EINVAL
+Any of the input parameter is invalid
+.TP
+.B EAGAIN
+Ring buffer is empty and function returned without reading anything.
+.UNINDENT
+.sp
+When \fIrb\fP was created with \fBrb_dynamic\fP, these additional errors may appear
+.INDENT 0.0
+.TP
+.B ENOBUFS
+Data is available on the buffer, but passed \fIbuffer\fP is not big enough
+to hold whole message.
+.UNINDENT
+.sp
+When \fIrb\fP is multi\-thread aware, these additional error may appear
+.INDENT 0.0
+.TP
+.B EAGAIN
+\fIrb\fP was created with \fBrb_growable\fP while being thread\-aware and ring
+buffer is in process of increasing size. Read notes in \fI\%rb_write(3)\fP man page.
+.TP
+.B ECANCELED
+Other thread called \fI\%rb_stop(3)\fP and no data has been read.
+.UNINDENT
+.SH EXAMPLES
+.sp
+Note that these examples do not have error handling for simplicity.
+.sp
+Simple read. Assuming ring buffer holds simple integers.
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+int rd_buf[128];
+long nread;
+
+nread = rb_read(rb, rd_buf, sizeof(rd_buf));
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Read but force non blocking operation
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+int rd_buf[128];
+long nread;
+
+nread = rb_recv(rb, rd_buf, sizeof(rd_buf), rb_dontwait);
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Claim buffer, and send data over serial line. Thanks to claim/commit we don\(aqt
+have to create any intermediate buffer and do double copying.
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+long nwritten;
+void *buffer;
+size_t count, object_size;
+
+rb_read_claim(rb, &buffer, &count, &object_size, 0);
+nwritten = write(serial_fd, buffer, count * object_size);
+/* tell rb, how many bytes we actually used, write() may return
+ * less than we asked it to send */
+rb_read_commit(rb, nwritten / object_size);
+.EE
+.UNINDENT
+.UNINDENT
+.SH SEE ALSO
+.sp
+\fI\%rb_new(3)\fP, \fI\%rb_init(3)\fP, \fI\%rb_destroy(3)\fP, \fI\%rb_cleanup(3)\fP, \fI\%rb_write(3)\fP, \fI\%rb_send(3)\fP,
+\fI\%rb_read(3)\fP, \fI\%rb_recv(3)\fP, \fI\%rb_read_claim(3)\fP, \fI\%rb_read_commit(3)\fP, \fI\%rb_write_claim(3)\fP,
+\fI\%rb_write_commit(3)\fP, \fI\%rb_clear(3)\fP, \fI\%rb_discard(3)\fP, \fI\%rb_count(3)\fP, \fI\%rb_space(3)\fP,
+\fI\%rb_stop(3)\fP, \fI\%rb_peek_size(3)\fP, \fI\%rb_set_hard_max_count(3)\fP
+.SH AUTHOR
+Michał Łyszczek <michal.lyszczek@bofc.pl>
+.SH COPYRIGHT
+2025, Michał Łyszczek
+.\" Generated by docutils manpage writer.
+.
