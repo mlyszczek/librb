@@ -1,0 +1,379 @@
+'\" t
+.\" Man page generated from reStructuredText.
+.
+.
+.nr rst2man-indent-level 0
+.
+.de1 rstReportMargin
+\\$1 \\n[an-margin]
+level \\n[rst2man-indent-level]
+level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
+-
+\\n[rst2man-indent0]
+\\n[rst2man-indent1]
+\\n[rst2man-indent2]
+..
+.de1 INDENT
+.\" .rstReportMargin pre:
+. RS \\$1
+. nr rst2man-indent\\n[rst2man-indent-level] \\n[an-margin]
+. nr rst2man-indent-level +1
+.\" .rstReportMargin post:
+..
+.de UNINDENT
+. RE
+.\" indent \\n[an-margin]
+.\" old: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.nr rst2man-indent-level -1
+.\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.in \\n[rst2man-indent\\n[rst2man-indent-level]]u
+..
+.TH "RB_OVERVIEW" "7" "Sep 09, 2025" "" "librb"
+.SH NAME
+.sp
+\fBrb_overview\fP \- quick overview of librb ring buffer library
+.SH SYNOPSIS
+.sp
+\fBlibrb\fP is a ring buffer FIFO queue with POSIX\-like API. \fBlibrb\fP
+is very versatile library with multiple features to make your life simpler.
+.INDENT 0.0
+.IP \(bu 2
+classic ring buffer, you don\(aqt have to put elements one by one on a queue,
+can put multiple elements on queue with 1 call
+.IP \(bu 2
+full multi\-thread awareness, with thread blocking, and read/write working
+simultaneously, non\-blocking operations are supported
+.IP \(bu 2
+automatically grow buffer when reaching max buffer, with configurable hard
+limit on max growable size
+.IP \(bu 2
+malloc() less mode for embedded
+.IP \(bu 2
+claim/commit API allows you to get ring buffers internal buffer to fill it
+in custom way, or even passing it to POSIX read/write function
+.IP \(bu 2
+dynamic mode, that allows you to put elements with arbitrary sizes
+.IP \(bu 2
+everything is written in one header and c\-source file, easy to copy and use
+in your project
+.UNINDENT
+.sp
+Which features are available are defined by flags you use. Some features can
+be disable during compile time to save on code size.
+.sp
+\fBlibrb\fP \- library that provides fast, easy to use ring buffer implementation.
+Its interface is very similar to read/write functions from POSIX.
+Basic usage can be done with only 4 functions:
+.TS
+box center;
+l|l.
+T{
+function
+T}	T{
+description
+T}
+_
+T{
+\fI\%rb_new(3)\fP
+T}	T{
+create new ring buffer, allocate all needed buffers
+T}
+_
+T{
+\fI\%rb_write(3)\fP
+T}	T{
+write arbitrary number of elements into ring buffer
+T}
+_
+T{
+\fI\%rb_read(3)\fP
+T}	T{
+read arbitrary number of elements from ring buffer
+T}
+_
+T{
+\fI\%rb_destroy(3)\fP
+T}	T{
+destroy ring buffer once you are done with it
+T}
+.TE
+.sp
+Flags for \fI\%rb_new(3)\fP or \fI\%rb_init(3)\fP:
+.TS
+box center;
+l|l.
+T{
+function
+T}	T{
+description
+T}
+_
+T{
+\fI\%rb_nonblock\fP
+T}	T{
+Create a non\-blocking ring buffer (for multi\-thread buffer only)
+T}
+_
+T{
+\fI\%rb_multithread\fP
+T}	T{
+Create thread aware ring buffer
+T}
+_
+T{
+\fI\%rb_dynamic\fP
+T}	T{
+Create dynamic buffer, where you can put object of any size on the
+buffer
+T}
+_
+T{
+\fI\%rb_growable\fP
+T}	T{
+Automatically increase size of a buffer, if you use all buffer
+T}
+_
+T{
+\fI\%rb_round_count\fP
+T}	T{
+Automatically round count passed during creation to next power of two
+value
+T}
+.TE
+.sp
+Additional functions are provided if classics are not enough
+.TS
+box center;
+l|l.
+T{
+function
+T}	T{
+description
+T}
+_
+T{
+\fI\%rb_init(3)\fP
+T}	T{
+initialize stack allocated ring buffer, must bring your own buffer
+T}
+_
+T{
+\fI\%rb_cleanup(3)\fP
+T}	T{
+cleanup ring buffer
+T}
+_
+T{
+\fI\%rb_send(3)\fP
+T}	T{
+same as \fI\%rb_write(3)\fP but accepts flags for altering behavior for one call
+T}
+_
+T{
+\fI\%rb_recv(3)\fP
+T}	T{
+same as \fI\%rb_read(3)\fP but accepts flags for altering behavior for one call
+T}
+.TE
+.sp
+Claim/commit API, useful when you want to pass internal ring buffer\(aqs buffer
+directly to read(2)/write(2) functions, or work directly on buffer for any
+reason.
+.TS
+box center;
+l|l.
+T{
+function
+T}	T{
+description
+T}
+_
+T{
+\fI\%rb_read_claim(3)\fP
+T}	T{
+claim buffer for reading
+T}
+_
+T{
+\fI\%rb_read_commit(3)\fP
+T}	T{
+commit data to ring buffer and release buffer
+T}
+_
+T{
+\fI\%rb_write_claim(3)\fP
+T}	T{
+claim buffer for writing
+T}
+_
+T{
+\fI\%rb_write_commit(3)\fP
+T}	T{
+commit data to ring buffer and release buffer
+T}
+.TE
+.sp
+Ring buffer control related functions:
+.TS
+box center;
+l|l.
+T{
+function
+T}	T{
+description
+T}
+_
+T{
+\fI\%rb_clear(3)\fP
+T}	T{
+quickly drop all data from ring buffer
+T}
+_
+T{
+\fI\%rb_discard(3)\fP
+T}	T{
+quickly discard number of elements from buffer
+T}
+_
+T{
+\fI\%rb_count(3)\fP
+T}	T{
+check how many elements are currently in buffer
+T}
+_
+T{
+\fI\%rb_space(3)\fP
+T}	T{
+check how much space left is there on buffer
+T}
+_
+T{
+\fI\%rb_stop(3)\fP
+T}	T{
+for multi\-thread, wake all blocked threads and tell them to finish
+operation
+T}
+_
+T{
+\fI\%rb_peek_size(3)\fP
+T}	T{
+check size of next frame that buffer will return, only when buffer is
+dynamic
+T}
+_
+T{
+\fI\%rb_set_hard_max_count(3)\fP
+T}	T{
+set how much ring buffer can grow when buffer is growable
+T}
+.TE
+.SH DESCRIPTION
+.sp
+\fBlibrb\fP works with \(dqelements\(dq or \(dqobjects\(dq not bytes. During ring buffer
+initialization you specify how big a single object is. That object may be
+an integer, but it also can be a struct. If you really want to work on bytes
+object size may just as well be equal to 1. After \fBlibrb\fP is initialized,
+you can only write or read objects with that specific size. It\(aqs best to just
+pick one type and just stick to it for the whole life of the buffer.
+.sp
+You can enable multi\-thread mode by passing \fBrb_multithread\fP flag during
+buffer creation. In this mode, read and write functions will block caller
+if there is no data or space available on buffer. \fBlibrb\fP utilizes double
+locking, one for write and read, so you can read and write simultaneously from
+a single ring buffer. If you don\(aqt want to have your thread blocked during
+operation, you can either create buffer with \fBrb_nonblock\fP flag (which will
+result in all calls to be not blocking), or pass \fBrb_dontwait\fP flag to either
+\fI\%rb_send(3)\fP or \fI\%rb_recv(3)\fP function, for single, non\-blocking operation.
+.SH EXAMPLE
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+/* ==========================================================================
+ *  Licensed under BSD 2clause license See LICENSE file for more information
+ *  Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
+ * ========================================================================== */
+#include <string.h>
+#include <stdio.h>
+
+#include \(dqrb.h\(dq
+#include \(dqcommon.h\(dq
+
+#define STACK_ALLOCATION 1
+
+int main(void)
+{
+#if STACK_ALLOCATION
+	struct rb   rbs;                 /* stack allocated ring buffer object */
+	int         buffer[128];         /* buffer to hold 128 integers */
+#endif
+	struct rb  *rb;                  /* pointer to new rb object */
+	long        nwritten;            /* return value from rb_write() */
+	long        nread;               /* return value from rb_read() */
+	int         data_to_write[256];  /* data to write into rb buffer */
+	int         data_read[256];      /* buffer where we will read from rb */
+	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+	/* You can use stack or heap allocations. Pick your poison. */
+#if STACK_ALLOCATION
+	/* Initialize stack allocated #rb. Use stack allocated #buffer to
+	 * hold data. Tell #rb array properties that is length and single
+	 * element size */
+	if (rb_init(&rbs, buffer, rb_array_size(buffer), sizeof(int), 0))
+		pdie(\(dqrb_init()\(dq);
+	rb = &rbs;
+#else
+	/* Initialize ring buffer using heap. Buffer of #rb it allocated
+	 * internally as well */
+	if ((rb = rb_new(128, sizeof(int), 0)) == NULL)
+		pdie(\(dqrb_init()\(dq);
+#endif
+
+	/* fill data to send with some data */
+	for (int i = 0; i != rb_array_size(data_to_write); ++i)
+		data_to_write[i] = i;
+
+	/* put data in the buffer, buffer can hold only 127 elements, and we try
+	 * to put 256 integers (elements) there, so rb_write will return 127,
+	 * as this is number of elements copied to rb object. */
+	nwritten = rb_write(rb, data_to_write, rb_array_size(data_to_write));
+	printf(\(dqnumber of elements stored to rb: %ld\en\(dq, nwritten);
+
+	/* buffer is now full, any write to it will result in error */
+	if (rb_write(rb, data_read, 1) == \-1)
+		perror(\(dqrb_write() returned error\(dq);
+
+	/* now we read maximum of 256 elements from rb to data_read buffer, but
+	 * since we put 127 elements in rb, only 127 elements will be copied
+	 * back to #data_read */
+	memset(data_read, 0x00, sizeof(data_read));
+	nread = rb_read(rb, data_read, rb_array_size(data_read));
+	printf(\(dqnumber of elements read from rb: %ld\en\(dq, nread);
+
+	/* buffer is now empty, any read from it will result in error */
+	if (rb_read(rb, data_read, 1) == \-1)
+		perror(\(dqrb_write() returned error\(dq);
+
+	/* check if data read matches what we\(aqve just put on buffer */
+	printf(\(dqChecking if data matches... data %s\en\(dq,
+		memcmp(data_read, data_to_write, nread * sizeof(int)) ? \(dqnot ok\(dq : \(dqok\(dq);
+
+	/* don\(aqt forget to cleanup object when done. */
+#if STACK_ALLOCATION
+	rb_cleanup(rb);
+#else
+	rb_destroy(rb);
+#endif
+
+	return 0;
+}
+
+.EE
+.UNINDENT
+.UNINDENT
+.SH AUTHOR
+Michał Łyszczek <michal.lyszczek@bofc.pl>
+.SH COPYRIGHT
+2025, Michał Łyszczek
+.\" Generated by docutils manpage writer.
+.

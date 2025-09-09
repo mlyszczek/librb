@@ -1,0 +1,219 @@
+.\" Man page generated from reStructuredText.
+.
+.
+.nr rst2man-indent-level 0
+.
+.de1 rstReportMargin
+\\$1 \\n[an-margin]
+level \\n[rst2man-indent-level]
+level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
+-
+\\n[rst2man-indent0]
+\\n[rst2man-indent1]
+\\n[rst2man-indent2]
+..
+.de1 INDENT
+.\" .rstReportMargin pre:
+. RS \\$1
+. nr rst2man-indent\\n[rst2man-indent-level] \\n[an-margin]
+. nr rst2man-indent-level +1
+.\" .rstReportMargin post:
+..
+.de UNINDENT
+. RE
+.\" indent \\n[an-margin]
+.\" old: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.nr rst2man-indent-level -1
+.\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.in \\n[rst2man-indent\\n[rst2man-indent-level]]u
+..
+.TH "RB_NEW" "3" "Sep 09, 2025" "" "librb"
+.SH NAME
+.sp
+\fI\%rb_new(3)\fP, \fI\%rb_init(3)\fP \- initialize new ring buffer
+.SH SYNOPSIS
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+#include <rb.h>
+
+struct rb *rb_new(size_t count, size_t object_size, enum rb_flags flags);
+int rb_init(struct rb *rb, void *buf, size_t count, size_t object_size,
+    enum rb_flags flags);
+.EE
+.UNINDENT
+.UNINDENT
+.SH DESCRIPTION
+.sp
+\fI\%rb_new(3)\fP creates and initializes new ring buffer object with requested \fIcount\fP
+elements and each element having \fIobject_size\fP size. Function returns pointer
+to heap allocated \fIstruct rb\fP object and it internally heap allocates buffer
+space. \fIcount\fP must be power of 2 number, so 1, 2, 4, 8, 16 and so on, and you
+will be able to store (\fIcount\fP \- 1) elements on buffer. \fIobject_size\fP can be
+of any size. Function will allocate (\fIcount\fP * \fIobject_size\fP) bytes of memory
+for the buffer. Ring buffer can be initialized with various flags, each altering
+buffer behavior. Flags can be \(dqored\(dq to enable multiple of them.
+.INDENT 0.0
+.TP
+.B no flags
+Creates classic ring buffer. Read and write calls will return with error
+if buffer is empty or full. By default \fIrb\fP will not have any concurrency
+awareness.
+.UNINDENT
+.INDENT 0.0
+.TP
+.B rb_multithread
+Enables thread awareness for the \fIrb\fP object. Read calls will now block
+if there is no data on buffer, and write calls will block until all data
+is sent. \fBlibrb\fP uses separate mutexes and semaphores for read and write
+operations so you can perform read and write from/to ring buffer
+simultaneously.
+.UNINDENT
+.INDENT 0.0
+.TP
+.B rb_nonblock
+Can only be used with \fBrb_multithread\fP flag. Causes all calls to library
+to never block, but return error instead.
+.UNINDENT
+.INDENT 0.0
+.TP
+.B rb_dynamic
+Normally \fBlibrb\fP works with elements/objects instead of raw bytes, but
+it limits you to only put that specific object on a buffer. If you create
+dynamic object this behavior will be altered and you will be able to put
+object of any size into a buffer. Drawback is that you will be able to
+write and read only 1 object at a time. In this mode \fBlibrb\fP first
+stores size of frame, them frame itself. \fBobject_count\fP now represents
+number of bytes that will be used to encode frame size information. Only
+values of 1, 2, 4 and 8 (if you have int64_t) are valid here. If you set
+\fBobject_size\fP to 1, you won\(aqt be able to hold objects longer than 255
+bytes. This will also put \fIrb\fP into bytes mode and read/write will always
+treat buffer as byte array and not object/element (just as if you passed
+\(dq1\(dq as \fBobject_size\fP in normal mode)
+.sp
+This is basically an equivalent of doing this. In this example we will
+be encoding frame size on 2 bytes (uint16_t)
+.INDENT 7.0
+.INDENT 3.5
+.sp
+.EX
+char *str = get_str();
+uint16_t strlen = strlen(str);
+
+/* manual way */
+rb = rb_new(128, 1, 0);
+rb_write(rb, &strlen, sizeof(uint16_t));
+rb_write(rb, str, strlen(str));
+
+/* automatic, dynamic way */
+rb = rb_new(128, 2 /* object_size */, rb_dynamic);
+rb_write(rb, str, strlen(str));
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+But \fBlibrb\fP will make sure buffer is consistent throughout the write/read
+operations \- especially in multi\-thread environment.
+.UNINDENT
+.sp
+These flags can only be specified when you initialize ring buffer via \fI\%rb_new(3)\fP
+function only.
+.INDENT 0.0
+.TP
+.B rb_round_count
+Convenience flag, when you pass it, giving \fIcount\fP that is not a power of
+2 number, will no longer return error, but \fIcount\fP will be rounded up to the
+next power of 2 number. Good for \(dqI want buffer at least \fIcount\fP big\(dq.
+.UNINDENT
+.INDENT 0.0
+.TP
+.B rb_growable
+When \fIrb\fP is full, \fI\%rb_write(3)\fP instead of blocking or returning error,
+will now try to increase internal buffer size, to accommodate new data.
+You can specify hard limit for buffer with \fI\%rb_set_hard_max_count(3)\fP\&. After
+you reach this hard limit, \fIrb\fP will start behaving as if it wasn\(aqt
+growable.
+.UNINDENT
+.sp
+\fI\%rb_init(3)\fP is the same as \fI\%rb_new(3)\fP but it never uses heap allocation. You must
+provide your own pointers for \fIrb\fP object and \fIbuffer\fP\&. These can be static
+or stack allocated, but they must be available for the whole life of ring
+buffer.
+.SH ABI CONSIDERATIONS
+.sp
+Ring buffer header exposes \fBstruct rb\fP, so that stack allocation can be
+possible. But using object this way can lead to crashes due to possible ABI
+mismatch. Using \fI\%rb_new(3)\fP is safe in case of ABI changes in struct.
+.sp
+If you have \fBlibrb\fP directly in your project, and you compile \fBlibrb\fP
+alongside your owe code, than you have no worries, and can use that struct
+and \fI\%rb_init(3)\fP without problems. This will be most likely true if you use it
+in hard embedded environment using RTOS.
+.sp
+If on the other hand you are planning to dynamically link with \fBlibrb\fP\&. Like
+you expect \fBlibrb\fP to be installed on a system (like normal libs on Unix).
+Then it is recommended to use \fI\%rb_new(3)\fP instead, which is both safer and easier
+to use. If your system supports dynamic linking, it surely supports virtual
+memory, and so you don\(aqt have to worry about heap fragmentation.
+.sp
+NOTE: even on hard embedded system it is safe to use heap allocation. You just
+have to make sure you don\(aqt plan on freeing the memory, and be sure to allocate
+all resources during boot process.
+.SH RETURN VALUE
+.sp
+\fI\%rb_new(3)\fP will return valid pointer on success or NULL on errors.
+\fI\%rb_init(3)\fP will return 0 on success and \-1 on errors.
+.SH ERRORS
+.INDENT 0.0
+.TP
+.B EINVAL
+Invalid parameter passed. Like invalid \fIcount\fP or \fBrb_round_count\fP or
+\fBrb_growable\fP while using \fI\%rb_init(3)\fP\&.
+.UNINDENT
+.sp
+\fI\%rb_new(3)\fP may additionally return
+.INDENT 0.0
+.TP
+.B ENOMEM
+Failed to allocate memory on heap.
+.UNINDENT
+.sp
+Multi\-thread environment may also return errors from \fBsem_init\fP or
+\fBpthread_mutex_init\fP\&.
+.SH EXAMPLES
+.sp
+Create new, simple ring buffer that can hold 7 integers
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+struct rb *rb = rb_new(8, sizeof(int), 0);
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Do the same but using stack allocation and \fI\%rb_init(3)\fP
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+struct rb rb;
+int buffer[8];
+
+rb_init(&rb, buffer, rb_array_size(buffer), sizeof(*buffer), 0);
+.EE
+.UNINDENT
+.UNINDENT
+.SH SEE ALSO
+.sp
+\fI\%rb_new(3)\fP, \fI\%rb_init(3)\fP, \fI\%rb_destroy(3)\fP, \fI\%rb_cleanup(3)\fP, \fI\%rb_write(3)\fP, \fI\%rb_send(3)\fP,
+\fI\%rb_read(3)\fP, \fI\%rb_recv(3)\fP, \fI\%rb_read_claim(3)\fP, \fI\%rb_read_commit(3)\fP, \fI\%rb_write_claim(3)\fP,
+\fI\%rb_write_commit(3)\fP, \fI\%rb_clear(3)\fP, \fI\%rb_discard(3)\fP, \fI\%rb_count(3)\fP, \fI\%rb_space(3)\fP,
+\fI\%rb_stop(3)\fP, \fI\%rb_peek_size(3)\fP, \fI\%rb_set_hard_max_count(3)\fP
+.SH AUTHOR
+Michał Łyszczek <michal.lyszczek@bofc.pl>
+.SH COPYRIGHT
+2025, Michał Łyszczek
+.\" Generated by docutils manpage writer.
+.

@@ -1,0 +1,232 @@
+'\" t
+.\" Man page generated from reStructuredText.
+.
+.
+.nr rst2man-indent-level 0
+.
+.de1 rstReportMargin
+\\$1 \\n[an-margin]
+level \\n[rst2man-indent-level]
+level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
+-
+\\n[rst2man-indent0]
+\\n[rst2man-indent1]
+\\n[rst2man-indent2]
+..
+.de1 INDENT
+.\" .rstReportMargin pre:
+. RS \\$1
+. nr rst2man-indent\\n[rst2man-indent-level] \\n[an-margin]
+. nr rst2man-indent-level +1
+.\" .rstReportMargin post:
+..
+.de UNINDENT
+. RE
+.\" indent \\n[an-margin]
+.\" old: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.nr rst2man-indent-level -1
+.\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.in \\n[rst2man-indent\\n[rst2man-indent-level]]u
+..
+.TH "RB_WRITE_COMMIT" "3" "Sep 09, 2025" "" "librb"
+.SH NAME
+.sp
+\fI\%rb_write(3)\fP, \fI\%rb_send(3)\fP, \fI\%rb_write_claim(3)\fP, \fI\%rb_write_commit(3)\fP \- write data to
+a ring buffer
+.SH SYNOPSIS
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+#include <rb.h>
+
+rb_write(struct rb *rb, const void *buffer, size_t count);
+rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flags);
+rb_write_claim(struct rb *rb, void **buffer, size_t *count,
+    size_t *object_size, enum rb_flags flags);
+long rb_write_commit(struct rb *rb, size_t count);
+.EE
+.UNINDENT
+.UNINDENT
+.SH DESCRIPTION
+.sp
+\fI\%rb_write(3)\fP will write \fIcount\fP elements from \fIbuffer\fP into \fIrb\fP ring buffer.
+Function may write less elements than requested, if buffer gets full during
+write. \fIcount\fP can be 0, in those cases no data will be written, but function
+may still perform some check and return errors.
+.sp
+If \fIrb\fP was created with \fBrb_dynamic\fP flag, function will always write a
+single object to the \fIrb\fP\&. In that case \fIcount\fP tells how big, in bytes,
+\fIbuffer\fP is. If there is not enough space in \fIrb\fP buffer, to hold whole
+\fIbuffer\fP, function will not write anything and return with error.
+.sp
+If \fIrb\fP was created with \fBrb_growable\fP and \fIrb\fP gets full during write,
+internal buffer will be increased in size by factor of 2. \fIrb\fP will not
+get increased past hard limit configured with \fI\%rb_set_hard_max_count(3)\fP\&. If
+\fIrb\fP can no longer increase size, function will start behaving as it was no
+longer growable.
+.sp
+If \fIrb\fP is multi\-thread aware, and there is no space in \fIrb\fP, caller thread will
+be blocked until someone reads from \fIrb\fP\&. Function will block until all \fIcount\fP
+elements have been written to ring buffer, or until error occurs that is.
+After successful read, function will wake potential thread blocked at read
+operation.
+.sp
+\fI\%rb_send(3)\fP behaves in the same way but also accepts \fIflags\fP to alter buffer
+behavior for one single call. Possible flags are:
+.TS
+box center;
+l|l.
+T{
+flag
+T}	T{
+description
+T}
+_
+T{
+rb_dontwait
+T}	T{
+Write data normally but do not block if buffer is full. Instead return
+error.
+T}
+.TE
+.sp
+\fI\%rb_write_claim(3)\fP doesn\(aqt write anything to the \fIrb\fP buffer, but instead gives
+you all the information needed for you to perform the write. On successful
+return, \fIbuffer\fP will be pointing at first writable byte, and you can write
+starting at offset 0. \fIcount\fP will tell you how many elements you can write
+into \fIbuffer\fP\&. If \fIrb\fP is close to memory wrap, you may get less data than
+there is actually in the \fIrb\fP buffer. \fIobject_size\fP defines size in bytes of
+a single object that can be read from \fIbuffer\fP\&.
+.sp
+If \fIrb\fP is multi\-thread aware, function will return with locked write mutex,
+so no one else will be able to write from buffer until you call
+\fI\%rb_write_commit(3)\fP and release mutex.
+.sp
+\fIflags\fP argument accepts only \fIrb_dontwait\fP flag (only in multi\-thread mode).
+.sp
+\fI\%rb_write_commit(3)\fP must be called after \fI\%rb_write_claim(3)\fP with \fIcount\fP being
+number of elements (not bytes) you wrote into the \fIbuffer\fP\&. If \fIrb\fP is
+multi\-thread aware, this will also wake up thread blocked in read operation.
+.SH NOTES
+.sp
+If \fIrb\fP has been created with both \fBrb_multithread\fP and \fBrb_growable\fP,
+and grow event is triggered, threads locked in \fI\%rb_read(3)\fP may return \fBEAGAIN\fP
+error until grow operation is completed.
+.sp
+Rationale. To grow buffer, we must have ownership of all fields, since this
+operation modifies variables used by both reading and writing operations.
+For that, growing thread must have both write and read locks. To grab the
+read lock without the risk of deadlocks, growing thread will start waking up
+blocked read threads until it can acquire read lock. Those woken threads
+will most likely be returning \fBEAGAIN\fP errors until grow operation is
+completed and order is restored.
+.SH RETURN VALUE
+.sp
+\fI\%rb_write(3)\fP and \fI\%rb_send(3)\fP will return number of elements actually written to
+the \fIrb\fP buffer. \fI\%rb_write_commit(3)\fP and \fI\%rb_write_claim(3)\fP return 0 on success.
+.sp
+All functions will return \-1 on errors with \fIerrno\fP variable set that will
+describe an error. If error is returned no data is written to the buffer.
+.SH ERRORS
+.sp
+All functions may return one of these on error
+.INDENT 0.0
+.TP
+.B EINVAL
+Any of the input parameter is invalid
+.TP
+.B EAGAIN
+Ring buffer is full and function returned without writing anything. If
+\fIrb\fP is dynamic, this will be returned when whole message cannot fit into
+\fIrb\fP\&.
+.UNINDENT
+.sp
+When \fIrb\fP was created with \fBrb_dynamic\fP, these additional errors may appear
+.INDENT 0.0
+.TP
+.B EMSGSIZE
+You tried to put too long message on buffer, and buffer cannot hold
+information about size. You must increase object_size during initialization.
+.UNINDENT
+.sp
+When \fIrb\fP was created with \fBrb_growable\fP, these additional errors may appear
+.INDENT 0.0
+.TP
+.B ENOMEM
+Error allocating more memory during growing operation. \fIrb\fP is still in
+valid state. You may want to call \fI\%rb_set_hard_max_count(3)\fP with current
+\fIrb\fP size to not get this error anymore.
+.UNINDENT
+.sp
+When \fIrb\fP was created with \fBrb_multithread\fP, these additional errors may appear
+.INDENT 0.0
+.TP
+.B EAGAIN
+\fI\%rb_clear(3)\fP has been called with request to zero out all ring buffer memory
+and no data has yet been written to \fIrb\fP\&.
+.TP
+.B ECANCELED
+Other thread called \fI\%rb_stop(3)\fP and no data has been written.
+.UNINDENT
+.SH EXAMPLES
+.sp
+Note that these examples do not have error handling for simplicity.
+.sp
+Simple write. Assuming ring buffer holds simple integers.
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+int wr_buf[128];
+long nwritten;
+
+nwritten = rb_write(rb, wr_buf, sizeof(wr_buf));
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Write but force non blocking operation
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+int wr_buf[128];
+long nwritten;
+
+nwritten = rb_send(rb, wr_buf, sizeof(wr_buf), rb_dontwait);
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Claim buffer, and read data from serial line into ring buffer. Thanks to
+claim/commit we don\(aqt have to create any intermediate buffer and do double
+copying.
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+long nread;
+void *buffer;
+size_t count, object_size;
+
+rb_write_claim(rb, &buffer, &count, &object_size, 0);
+nread = read(serial_fd, buffer, count * object_size);
+/* tell rb, how many bytes we actually used, read() may return
+ * less than we asked it to read */
+rb_write_commit(rb, nread / object_size);
+.EE
+.UNINDENT
+.UNINDENT
+.SH SEE ALSO
+.sp
+\fI\%rb_new(3)\fP, \fI\%rb_init(3)\fP, \fI\%rb_destroy(3)\fP, \fI\%rb_cleanup(3)\fP, \fI\%rb_write(3)\fP, \fI\%rb_send(3)\fP,
+\fI\%rb_read(3)\fP, \fI\%rb_recv(3)\fP, \fI\%rb_read_claim(3)\fP, \fI\%rb_read_commit(3)\fP, \fI\%rb_write_claim(3)\fP,
+\fI\%rb_write_commit(3)\fP, \fI\%rb_clear(3)\fP, \fI\%rb_discard(3)\fP, \fI\%rb_count(3)\fP, \fI\%rb_space(3)\fP,
+\fI\%rb_stop(3)\fP, \fI\%rb_peek_size(3)\fP, \fI\%rb_set_hard_max_count(3)\fP
+.SH AUTHOR
+Michał Łyszczek <michal.lyszczek@bofc.pl>
+.SH COPYRIGHT
+2025, Michał Łyszczek
+.\" Generated by docutils manpage writer.
+.
