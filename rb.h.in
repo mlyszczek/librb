@@ -17,6 +17,10 @@
 #   include <semaphore.h>
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum rb_flags
 {
 	/** ======================================================================
@@ -451,5 +455,9 @@ long rb_space(struct rb *rb);
  * @exception EINVAL #rb is invalid or is not a in a multi-thread mode
  * ========================================================================== */
 int rb_stop(struct rb *rb);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
