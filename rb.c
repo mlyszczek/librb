@@ -1345,11 +1345,47 @@ long rb_write(struct rb *rb, const void *buffer, size_t count)
  * #object_size defines size of a single object that is held on ring buffer.
  * You should write to a buffer in increments of #object_size bytes.
  *
- * You can specify #flags as with #rb_send()
+ * If multi-thread #rb is used, function will block like #rb_send until
+ * space is available on #rb. After function finishes, you will be the owner
+ * of #rb->wlock mutex, so no one will interfere with your writing.
+ *
+ * @note that #count does not describe #buffer size in bytes, but in "elements".
+ *       #buffer size in bytes is #count * #object_size
+ * @note remember to call #rb_write_commit() once you are done
+ *
+ * @param rb ring buffer object
+ * @param buffer location where data should be copied to
+ * @param count max number of elements that can be copied to #buffer
+ * @param object_size size of single object #rb holds (in bytes)
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+int rb_write_claim(struct rb *rb, void **buffer, size_t *count,
+	size_t *object_size)
+{
+	return rb_send_claim(rb, buffer, count, object_size, 0);
+}
+
+/** =========================================================================
+ * Claims ring buffer for writing.
+ *
+ * In return you will get pointer to a #buffer. You can directly write to it
+ * starting from offset 0. #count will tell you how big #buffer is. Do not
+ * even think about writing more elements than #count. If you are close to
+ * memory wrap, #count may be very small, fill the #buffer and next call will
+ * give you more memory.
+ *
+ * #object_size defines size of a single object that is held on ring buffer.
+ * You should write to a buffer in increments of #object_size bytes.
+ *
+ * You can specify #flags as with #rb_send() plus additionally:
+ * - rb_continue: get buffer but do not try to lock the mutex, you must first
+ *   call rb_send_commit() with #rb_continue flag or else you will hang in
+ *   double lock case. This flag will do nothing for single thread operation.
  *
  * If multi-thread #rb is used, function will block like #rb_send until
  * space is available on #rb. After function finishes, you will be the owner
- * of #rb->write_lock mutex, so no one will interfere with your writing.
+ * of #rb->wlock mutex, so no one will interfere with your writing.
  *
  * @note that #count does not describe #buffer size in bytes, but in "elements".
  *       #buffer size in bytes is #count * #object_size
@@ -1363,17 +1399,16 @@ long rb_write(struct rb *rb, const void *buffer, size_t count)
  *
  * @return 0 on success, otherwise -1 is returned
  * ========================================================================== */
-long rb_write_claim(struct rb *rb, void **buffer, size_t *count,
+int rb_send_claim(struct rb *rb, void **buffer, size_t *count,
 	size_t *object_size, enum rb_flags flags)
 {
-	(void)flags;
 	VALID(EINVAL, rb);
 	VALID(EINVAL, buffer);
 	VALID(EINVAL, count);
 	VALID(EINVAL, object_size);
 
 #if ENABLE_THREADS
-	if (rb->flags & rb_multithread) {
+	if (rb->flags & rb_multithread && !(flags & rb_continue)) {
 		if (rb_trylock(rb, flags, &rb->write_lock))
 			return -1;
 		if (rb_wait_for_space(rb, 1, flags))
@@ -1401,14 +1436,40 @@ long rb_write_claim(struct rb *rb, void **buffer, size_t *count,
  *
  * @return 0 on success, otherwise -1 is returned
  * ========================================================================== */
-long rb_write_commit(struct rb *rb, size_t count)
+int rb_write_commit(struct rb *rb, size_t count)
+{
+	return rb_send_commit(rb, count, 0);
+}
+
+/** =========================================================================
+ * Commits data written to #rb in #rb_write_claim buffer. You just have to
+ * specify number of elements actually written to #rb in claim call.
+ *
+ * In multi-thread environment, this will release write mutex and threads
+ * blocked in read will be woken up. It's ok to pass 0 as #count.
+ *
+ * You can specify following flags:
+ * - rb_continue: commit data to the buffer but DO NOT unlock mutex or
+ *   notify other threads yet. You will still hold the lock. When getting
+ *   more buffer data you must next call rb_recv_claim() with #rb_continue
+ *   flag as well. Calling this function once again but without #rb_continue
+ *   the second time will just release the lock. This flag will do nothing
+ *   in single thread mode
+ *
+ * @param rb ring object to commit to
+ * @param count number of elements written to ring buffer after claiming it
+ * @param flags operation flags
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+int rb_send_commit(struct rb *rb, size_t count, enum rb_flags flags)
 {
 	VALID(EINVAL, rb);
 
 	rb_increase_head(rb, count);
 
 #if ENABLE_THREADS
-	if (rb->flags & rb_multithread) {
+	if (rb->flags & rb_multithread && !(flags & rb_continue)) {
 		if (count)
 			rb_sem_post(&rb->read_sem);
 		unlock(rb->write_lock);
@@ -1417,6 +1478,51 @@ long rb_write_commit(struct rb *rb, size_t count)
 
 	trace("write committed");
 	return 0;
+}
+
+/** =========================================================================
+ * Shortcut function to perform claim immediately followed by commit with
+ * #rb_continue flag. In short, this will commit buffer and immediately take
+ * new one without releasing the lock.
+ *
+ * @param rb ring buffer object
+ * @param buffer location where data can be written to will be stored here
+ * @param count in/out param, on input defines how many bytes you are
+ *        committing to buffer (like in #rb_write_commit), and as output, it
+ *        will hold number of elements that can be written to #buffer
+ * @param object_size size of single object #rb holds (in bytes)
+ * @param flags operation flags
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+int rb_send_commit_claim(struct rb *rb, void **buffer, size_t *count,
+	size_t *object_size, enum rb_flags flags)
+{
+	VALID(EINVAL, count);
+
+	if (rb_send_commit(rb, *count, flags | rb_continue))
+		return -1;
+	return rb_send_claim(rb, buffer, count, object_size, flags | rb_continue);
+}
+
+/** =========================================================================
+ * Shortcut function to perform claim immediately followed by commit with
+ * #rb_continue flag. In short, this will commit buffer and immediately take
+ * new one without releasing the lock.
+ *
+ * @param rb ring buffer object
+ * @param buffer location where data can be written to will be stored here
+ * @param count in/out param, on input defines how many bytes you are
+ *        committing to buffer (like in #rb_write_commit), and as output, it
+ *        will hold number of elements that can be written to #buffer
+ * @param object_size size of single object #rb holds (in bytes)
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+int rb_write_commit_claim(struct rb *rb, void **buffer, size_t *count,
+	size_t *object_size)
+{
+	return rb_send_commit_claim(rb, buffer, count, object_size, 0);
 }
 
 /** =========================================================================
@@ -1431,11 +1537,47 @@ long rb_write_commit(struct rb *rb, size_t count)
  * #object_size defines size of a single object that is held on ring buffer.
  * You should read from a #buffer in increments of #object_size bytes.
  *
- * You can specify #flags as with #rb_recv()
+ * If multi-thread #rb is used, function will block like #rb_read until
+ * data is available on #rb. After function finishes, you will be the owner
+ * of #rb->rlock mutex, so no one will interfere with your reading.
+ *
+ * @note that #count does not describe #buffer size in bytes, but in "elements".
+ *       #buffer size in bytes is #count * #object_size
+ * @note remember to call #rb_read_commit() once you are done
+ *
+ * @param rb ring buffer object
+ * @param buffer location from where data can be read
+ * @param count max number of elements that can be read from #buffer
+ * @param object_size size of single object #rb holds (in bytes)
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+int rb_read_claim(struct rb *rb, void **buffer, size_t *count,
+	size_t *object_size)
+{
+	return rb_recv_claim(rb, buffer, count, object_size, 0);
+}
+
+/** =========================================================================
+ * Claims ring buffer for reading.
+ *
+ * In return you will get pointer to a #buffer. You can directly read from it
+ * starting at offset 0. #count will tell you how big #buffer is. Do not
+ * even think about reading more elements than #count. If you are close to
+ * memory wrap, #count may be very small, fully read the #buffer and next
+ * call will give you more memory to read.
+ *
+ * #object_size defines size of a single object that is held on ring buffer.
+ * You should read from a #buffer in increments of #object_size bytes.
+ *
+ * You can specify #flags as with #rb_recv() plus additionally:
+ * - rb_continue: get buffer but do not try to lock the mutex, you must first
+ *   call rb_recv_commit() with #rb_continue flag or else you will hang in
+ *   double lock case. This flag will do nothing for single thread operation.
  *
  * If multi-thread #rb is used, function will block like #rb_read until
  * data is available on #rb. After function finishes, you will be the owner
- * of #rb->read_lock mutex, so no one will interfere with your reading.
+ * of #rb->rlock mutex, so no one will interfere with your reading.
  *
  * @note that #count does not describe #buffer size in bytes, but in "elements".
  *       #buffer size in bytes is #count * #object_size
@@ -1449,17 +1591,16 @@ long rb_write_commit(struct rb *rb, size_t count)
  *
  * @return 0 on success, otherwise -1 is returned
  * ========================================================================== */
-long rb_read_claim(struct rb *rb, void **buffer, size_t *count,
+int rb_recv_claim(struct rb *rb, void **buffer, size_t *count,
 	size_t *object_size, enum rb_flags flags)
 {
-	(void)flags;
 	VALID(EINVAL, rb);
 	VALID(EINVAL, buffer);
 	VALID(EINVAL, count);
 	VALID(EINVAL, object_size);
 
 #if ENABLE_THREADS
-	if (rb->flags & rb_multithread) {
+	if (rb->flags & rb_multithread && !(flags & rb_continue)) {
 		if (rb_trylock(rb, flags, &rb->read_lock))
 			return -1;
 		if (rb_wait_for_data(rb, 1, 0, flags))
@@ -1476,6 +1617,51 @@ long rb_read_claim(struct rb *rb, void **buffer, size_t *count,
 }
 
 /** =========================================================================
+ * Shortcut function to perform claim immediately followed by commit with
+ * #rb_continue flag. In short, this will commit buffer and immediately take
+ * new one without releasing the lock.
+ *
+ * @param rb ring buffer object
+ * @param buffer location from where data can be read will be stored here
+ * @param count in/out param, on input defines how many bytes you are
+ *        committing to buffer (like in #rb_read_commit), and as output, it
+ *        will hold number of elements that can be read from #buffer
+ * @param object_size size of single object #rb holds (in bytes)
+ * @param flags operation flags
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+int rb_recv_commit_claim(struct rb *rb, void **buffer, size_t *count,
+	size_t *object_size, enum rb_flags flags)
+{
+	VALID(EINVAL, count);
+
+	if (rb_recv_commit(rb, *count, flags | rb_continue))
+		return -1;
+	return rb_recv_claim(rb, buffer, count, object_size, flags | rb_continue);
+}
+
+/** =========================================================================
+ * Shortcut function to perform claim immediately followed by commit with
+ * #rb_continue flag. In short, this will commit buffer and immediately take
+ * new one without releasing the lock.
+ *
+ * @param rb ring buffer object
+ * @param buffer location from where data can be read will be stored here
+ * @param count in/out param, on input defines how many bytes you are
+ *        committing to buffer (like in #rb_read_commit), and as output, it
+ *        will hold number of elements that can be read from #buffer
+ * @param object_size size of single object #rb holds (in bytes)
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+int rb_read_commit_claim(struct rb *rb, void **buffer, size_t *count,
+	size_t *object_size)
+{
+	return rb_recv_commit_claim(rb, buffer, count, object_size, 0);
+}
+
+/** =========================================================================
  * Commits data read from #rb in #rb_read_claim. You just have to
  * specify number of elements actually read from #rb in claim call.
  *
@@ -1487,14 +1673,40 @@ long rb_read_claim(struct rb *rb, void **buffer, size_t *count,
  *
  * @return 0 on success, otherwise -1 is returned
  * ========================================================================== */
-long rb_read_commit(struct rb *rb, size_t count)
+int rb_read_commit(struct rb *rb, size_t count)
+{
+	return rb_recv_commit(rb, count, 0);
+}
+
+/** =========================================================================
+ * Commits data read from #rb in #rb_read_claim. You just have to
+ * specify number of elements actually read from #rb in claim call.
+ *
+ * In multi-thread environment, this will release read mutex and threads
+ * blocked in write will be woken up. It's ok to pass 0 as #count.
+ *
+ * You can specify following flags:
+ * - rb_continue: commit data to the buffer but DO NOT unlock mutex or
+ *   notify other threads yet. You will still hold the lock. When getting
+ *   more buffer data you must next call rb_recv_claim() with #rb_continue
+ *   flag as well. Calling this function once again but without #rb_continue
+ *   the second time will just release the lock. This flag will do nothing
+ *   in single thread mode
+ *
+ * @param rb ring object to commit to
+ * @param count number of elements read from ring buffer after claiming it
+ * @param flags operation flags
+ *
+ * @return 0 on success, otherwise -1 is returned
+ * ========================================================================== */
+int rb_recv_commit(struct rb *rb, size_t count, enum rb_flags flags)
 {
 	VALID(EINVAL, rb);
 
 	rb_increase_tail(rb, count);
 
 #if ENABLE_THREADS
-	if (rb->flags & rb_multithread) {
+	if (rb->flags & rb_multithread && !(flags & rb_continue)) {
 		if (count)
 			rb_sem_post(&rb->write_sem);
 		unlock(rb->read_lock);
