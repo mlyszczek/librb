@@ -94,18 +94,27 @@ man3_MANS = \
 	man/rb_discard.3 \
 	man/rb_init.3 \
 	man/rb_new.3 \
+	man/rb_overview.7 \
 	man/rb_peek_size.3 \
 	man/rb_read.3 \
 	man/rb_read_claim.3 \
 	man/rb_read_commit.3 \
+	man/rb_read_commit_claim.3 \
 	man/rb_recv.3 \
+	man/rb_recv_claim.3 \
+	man/rb_recv_commit.3 \
+	man/rb_recv_commit_claim.3 \
 	man/rb_send.3 \
+	man/rb_send_claim.3 \
+	man/rb_send_commit.3 \
+	man/rb_send_commit_claim.3 \
 	man/rb_set_hard_max_count.3 \
 	man/rb_space.3 \
 	man/rb_stop.3 \
 	man/rb_write.3 \
 	man/rb_write_claim.3 \
-	man/rb_write_commit.3
+	man/rb_write_commit.3 \
+	man/rb_write_commit_claim.3
 man7_MANS=man/rb_overview.7
 
 if ENABLE_DOCS

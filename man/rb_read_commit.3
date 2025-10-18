@@ -28,11 +28,12 @@ level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
 .\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
 .in \\n[rst2man-indent\\n[rst2man-indent-level]]u
 ..
-.TH "RB_READ_COMMIT" "3" "Sep 09, 2025" "" "librb"
+.TH "RB_READ_COMMIT" "3" "Oct 18, 2025" "" "librb"
 .SH NAME
 .sp
-\fBrb_read\fP, \fBrb_recv\fP, \fBrb_read_claim\fP, \fBrb_read_commit\fP \- read data from
-a ring buffer.
+\fI\%rb_read(3)\fP, \fI\%rb_recv(3)\fP, \fI\%rb_read_claim(3)\fP, \fI\%rb_read_commit(3)\fP, \fI\%rb_recv_claim(3)\fP,
+\fI\%rb_recv_commit(3)\fP, \fI\%rb_read_commit_claim(3)\fP, \fI\%rb_recv_commit_claim(3)\fP \- read data
+from a ring buffer.
 .SH SYNOPSIS
 .INDENT 0.0
 .INDENT 3.5
@@ -41,10 +42,18 @@ a ring buffer.
 #include <rb.h>
 
 long rb_read(struct rb *rb, void *buffer, size_t count);
+int rb_read_claim(struct rb *rb, void **buffer, size_t *count,
+    size_t *object_size);
+int rb_read_commit(struct rb *rb, size_t count);
+int rb_read_commit_claim(struct rb *rb, void **buffer, size_t *count,
+    size_t *object_size)
+
 long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags);
-long rb_read_claim(struct rb *rb, void **buffer, size_t *count,
+int rb_recv_claim(struct rb *rb, void **buffer, size_t *count,
     size_t *object_size, enum rb_flags flags);
-long rb_read_commit(struct rb *rb, size_t count);
+int rb_recv_commit(struct rb *rb, size_t count, enum rb_flags flags);
+int rb_recv_commit_claim(struct rb *rb, void **buffer, size_t *count,
+    size_t *object_size, enum rb_flags flags);
 .EE
 .UNINDENT
 .UNINDENT
@@ -108,15 +117,27 @@ If \fIrb\fP is multi\-thread aware, function will return with locked read mutex,
 so no one else will be able to read from buffer until you call \fI\%rb_read_commit(3)\fP
 and release mutex.
 .sp
-\fIflags\fP argument accepts only \fIrb_dontwait\fP flag (only in multi\-thread mode).
-.sp
 \fI\%rb_read_commit(3)\fP must be called after \fI\%rb_read_claim(3)\fP with \fIcount\fP being
 number of elements (not bytes) you read from the \fIbuffer\fP\&. If \fIrb\fP is
 multi\-thread aware, this will also wake up thread blocked in write operation.
+.sp
+\fI\%rb_read_commit_claim(3)\fP can be used to commit data to ring buffer as you would
+do with \fI\%rb_read_commit(3)\fP, but also immediately claims new buffer as you would
+do with \fI\%rb_read_claim(3)\fP\&. Benefit of calling this function is that you can get
+new buffer without releasing the lock. This may be useful when you must perform
+multiple reads from buffer while making sure no one else disturbs you in the
+middle.
+.sp
+Function takes same parameters as \fI\%rb_read_claim(3)\fP but \fIcount\fP is both
+input and output. As input arguments is defines how many bytes you commit
+to the buffer, same calling \fI\%rb_read_commit(3)\fP\&. As output it defines size of
+returned \fIbuffer\fP as with \fI\%rb_read_claim(3)\fP\&.
 .SH RETURN VALUE
 .sp
 \fI\%rb_read(3)\fP and \fI\%rb_recv(3)\fP will return number of elements actually read from
-ring buffer. \fI\%rb_read_commit(3)\fP and \fI\%rb_read_claim(3)\fP return 0 on success.
+ring buffer. \fI\%rb_read_commit(3)\fP, \fI\%rb_read_claim(3)\fP, \fI\%rb_recv_commit(3)\fP,
+\fI\%rb_recv_claim(3)\fP, \fI\%rb_read_commit_claim(3)\fP and \fI\%rb_recv_commit_claim(3)\fP return 0
+on success.
 .sp
 All functions will return \-1 on errors with \fIerrno\fP variable set that will
 describe an error. If error is returned no data is removed from the buffer.
