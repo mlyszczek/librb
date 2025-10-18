@@ -1,8 +1,12 @@
-/* ==========================================================================
- *  Licensed under BSD 2clause license. See LICENSE file for more information
- *  Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
- * ==========================================================================
- *  librb-v9999
+/** =========================================================================
+ * @brief     ring buffer message queue implementation
+ * @author    Michał Łyszczek (michal.lyszczek@bofc.pl)
+ * @date      2025-10-18
+ * @copyright Copyright by Michał Łyszczek
+ * @license   BSD-2-Clause
+ * @version   2.1.0
+ * @homepage  https://librb.bofc.pl/
+ * @manuals   https://librb.bofc.pl/rb_overview.7.html
  * ==========================================================================
  *                       ░▀█▀░█▀█░█▀▀░█░░░█░█░█▀▄░█▀▀░█▀▀
  *                       ░░█░░█░█░█░░░█░░░█░█░█░█░█▀▀░▀▀█
