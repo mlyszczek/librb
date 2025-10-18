@@ -94,7 +94,6 @@ man3_MANS = \
 	man/rb_discard.3 \
 	man/rb_init.3 \
 	man/rb_new.3 \
-	man/rb_overview.7 \
 	man/rb_peek_size.3 \
 	man/rb_read.3 \
 	man/rb_read_claim.3 \
