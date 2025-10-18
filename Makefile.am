@@ -16,7 +16,16 @@ nodist_include_HEADERS = rb.h
 
 lib_LTLIBRARIES = librb.la
 librb_la_SOURCES = rb.c
-librb_la_LDFLAGS = -version-info 2:0:2
+librb_la_LDFLAGS = -version-info 3:0:1
+#       .------------------------' | |
+#       |        .-----------------' |
+#       |        |     .-------------'
+#    current:revision:age
+#       |        |     `- increment if interfaces have been added set to
+#       |        |        zero if interfaces have been removed  or changed
+#       |        `- increment if source code has changed
+#       |           set to zero if current is incremented
+#       `- increment if interfaces have been added, removed or changed
 librb_la_CFLAGS = -I$(top_srcdir)
 
 # =============================================================================
