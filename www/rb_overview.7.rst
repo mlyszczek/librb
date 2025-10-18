@@ -67,23 +67,6 @@ Flags for |rb_new| or |rb_init|:
       - Automatically round count passed during creation to next power of two
         value
 
-Additional functions are provided if classics are not enough
-
-.. list-table::
-    :header-rows: 1
-
-    * - function
-      - description
-    * - |rb_init|
-      - initialize stack allocated ring buffer, must bring your own buffer
-    * - |rb_cleanup|
-      - cleanup ring buffer
-    * - |rb_send|
-      - same as |rb_write| but accepts flags for altering behavior for one call
-    * - |rb_recv|
-      - same as |rb_read| but accepts flags for altering behavior for one call
-
-
 Claim/commit API, useful when you want to pass internal ring buffer's buffer
 directly to read(2)/write(2) functions, or work directly on buffer for any
 reason.
@@ -97,10 +80,14 @@ reason.
       - claim buffer for reading
     * - |rb_read_commit|
       - commit data to ring buffer and release buffer
+    * - |rb_read_commit_claim|
+      - commit data then immediately claim another buffer without unlocking
     * - |rb_write_claim|
       - claim buffer for writing
     * - |rb_write_commit|
       - commit data to ring buffer and release buffer
+    * - |rb_write_commit_claim|
+      - commit data then immediately claim another buffer without unlocking
 
 Ring buffer control related functions:
 
@@ -125,6 +112,36 @@ Ring buffer control related functions:
         dynamic
     * - |rb_set_hard_max_count|
       - set how much ring buffer can grow when buffer is growable
+
+Additional functions are provided if classics are not enough and more
+fine-grained control is needed:
+
+.. list-table::
+    :header-rows: 1
+
+    * - function
+      - description
+    * - |rb_init|
+      - initialize stack allocated ring buffer, must bring your own buffer
+    * - |rb_cleanup|
+      - cleanup ring buffer
+    * - |rb_send|
+      - same as |rb_write| but accepts flags for altering behavior for one call
+    * - |rb_recv|
+      - same as |rb_read| but accepts flags for altering behavior for one call
+    * - |rb_recv_claim|
+      - claim buffer for reading
+    * - |rb_recv_commit|
+      - commit data to ring buffer and release buffer
+    * - |rb_recv_commit_claim|
+      - commit data then immediately claim another buffer without unlocking
+    * - |rb_send_claim|
+      - claim buffer for writing
+    * - |rb_send_commit|
+      - commit data to ring buffer and release buffer
+    * - |rb_send_commit_claim|
+      - commit data then immediately claim another buffer without unlocking
+
 
 DESCRIPTION
 -----------

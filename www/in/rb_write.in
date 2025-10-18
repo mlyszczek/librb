@@ -1,7 +1,8 @@
 NAME
 ----
-|rb_write|, |rb_send|, |rb_write_claim|, |rb_write_commit| - write data to
-a ring buffer
+|rb_write|, |rb_send|, |rb_write_claim|, |rb_write_commit|, |rb_send_claim|,
+|rb_send_commit|, |rb_write_commit_claim|, |rb_send_commit_claim| - write data
+to a ring buffer.
 
 SYNOPSIS
 --------
@@ -10,10 +11,18 @@ SYNOPSIS
    #include <rb.h>
 
    rb_write(struct rb *rb, const void *buffer, size_t count);
-   rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flags);
-   rb_write_claim(struct rb *rb, void **buffer, size_t *count,
-       size_t *object_size, enum rb_flags flags);
+   long rb_write_claim(struct rb *rb, void **buffer, size_t *count,
+       size_t *object_size);
    long rb_write_commit(struct rb *rb, size_t count);
+   long rb_write_commit_claim(struct rb *rb, void **buffer, size_t *count,
+       size_t *object_size);
+
+   rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flags);
+   rb_send_claim(struct rb *rb, void **buffer, size_t *count,
+       size_t *object_size, enum rb_flags flags);
+   long rb_send_commit(struct rb *rb, size_t count, enum rb_flags flags);
+   long rb_send_commit_claim(struct rb *rb, void **buffer, size_t *count,
+       size_t *object_size, enum rb_flags flags);
 
 DESCRIPTION
 -----------
@@ -69,6 +78,18 @@ so no one else will be able to write from buffer until you call
 number of elements (not bytes) you wrote into the *buffer*. If *rb* is
 multi-thread aware, this will also wake up thread blocked in read operation.
 
+|rb_write_commit_claim| can be used to commit data to ring buffer as you would
+do with |rb_write_commit|, but also immediately claims new buffer as you would
+do with |rb_write_claim|. Benefit of calling this function is that you can get
+new buffer without releasing the lock. This may be useful when you must perform
+multiple writes to buffer while making sure no one else disturbs you in the
+middle.
+
+Function takes same parameters as |rb_write_claim| but *count* is both
+input and output. As input arguments is defines how many bytes you commit
+to the buffer, same calling |rb_write_commit|. As output it defines size of
+returned *buffer* as with |rb_write_claim|.
+
 NOTES
 -----
 If *rb* has been created with both **rb_multithread** and **rb_growable**,
@@ -87,6 +108,11 @@ RETURN VALUE
 ------------
 |rb_write| and |rb_send| will return number of elements actually written to
 the *rb* buffer. |rb_write_commit| and |rb_write_claim| return 0 on success.
+
+|rb_write| and |rb_send| will return number of elements actually written to
+the *rb* buffer. |rb_write_commit|, |rb_write_claim|, |rb_send_commit|,
+|rb_send_claim|, |rb_write_commit_claim| and |rb_send_commit_claim| return 0
+on success.
 
 All functions will return -1 on errors with *errno* variable set that will
 describe an error. If error is returned no data is written to the buffer.

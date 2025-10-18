@@ -1,7 +1,8 @@
 NAME
 ----
-**rb_read**, **rb_recv**, **rb_read_claim**, **rb_read_commit** - read data from
-a ring buffer.
+|rb_read|, |rb_recv|, |rb_read_claim|, |rb_read_commit|, |rb_recv_claim|,
+|rb_recv_commit|, |rb_read_commit_claim|, |rb_recv_commit_claim| - read data
+from a ring buffer.
 
 SYNOPSIS
 --------
@@ -10,10 +11,18 @@ SYNOPSIS
    #include <rb.h>
 
    long rb_read(struct rb *rb, void *buffer, size_t count);
+   int rb_read_claim(struct rb *rb, void **buffer, size_t *count,
+       size_t *object_size);
+   int rb_read_commit(struct rb *rb, size_t count);
+   int rb_read_commit_claim(struct rb *rb, void **buffer, size_t *count,
+       size_t *object_size)
+
    long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags);
-   long rb_read_claim(struct rb *rb, void **buffer, size_t *count,
+   int rb_recv_claim(struct rb *rb, void **buffer, size_t *count,
        size_t *object_size, enum rb_flags flags);
-   long rb_read_commit(struct rb *rb, size_t count);
+   int rb_recv_commit(struct rb *rb, size_t count, enum rb_flags flags);
+   int rb_recv_commit_claim(struct rb *rb, void **buffer, size_t *count,
+       size_t *object_size, enum rb_flags flags);
 
 DESCRIPTION
 -----------
@@ -64,16 +73,28 @@ If *rb* is multi-thread aware, function will return with locked read mutex,
 so no one else will be able to read from buffer until you call |rb_read_commit|
 and release mutex.
 
-*flags* argument accepts only *rb_dontwait* flag (only in multi-thread mode).
-
 |rb_read_commit| must be called after |rb_read_claim| with *count* being
 number of elements (not bytes) you read from the *buffer*. If *rb* is
 multi-thread aware, this will also wake up thread blocked in write operation.
 
+|rb_read_commit_claim| can be used to commit data to ring buffer as you would
+do with |rb_read_commit|, but also immediately claims new buffer as you would
+do with |rb_read_claim|. Benefit of calling this function is that you can get
+new buffer without releasing the lock. This may be useful when you must perform
+multiple reads from buffer while making sure no one else disturbs you in the
+middle.
+
+Function takes same parameters as |rb_read_claim| but *count* is both
+input and output. As input arguments is defines how many bytes you commit
+to the buffer, same calling |rb_read_commit|. As output it defines size of
+returned *buffer* as with |rb_read_claim|.
+
 RETURN VALUE
 ------------
 |rb_read| and |rb_recv| will return number of elements actually read from
-ring buffer. |rb_read_commit| and |rb_read_claim| return 0 on success.
+ring buffer. |rb_read_commit|, |rb_read_claim|, |rb_recv_commit|,
+|rb_recv_claim|, |rb_read_commit_claim| and |rb_recv_commit_claim| return 0
+on success.
 
 All functions will return -1 on errors with *errno* variable set that will
 describe an error. If error is returned no data is removed from the buffer.
