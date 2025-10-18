@@ -86,7 +86,7 @@ static long test_rb_read(struct rb *rb, void *buf, size_t count, int flags, int 
 	if (READ_TYPE(type) == READ_TYPE_NORMAL)
 		return rb_recv(rb, buf, count, flags);
 
-	if (rb_read_claim(rb, &rb_buf, &rb_count, &rb_objsize, flags))
+	if (rb_recv_claim(rb, &rb_buf, &rb_count, &rb_objsize, flags))
 		return -1;
 
 	to_copy = MIN(rb_count, count);
@@ -107,7 +107,7 @@ static long test_rb_write(struct rb *rb, const void *buf, size_t count,
 	if (WRITE_TYPE(type) == WRITE_TYPE_NORMAL)
 		return rb_send(rb, buf, count, flags);
 
-	if (rb_write_claim(rb, &rb_buf, &rb_count, &rb_objsize, flags))
+	if (rb_send_claim(rb, &rb_buf, &rb_count, &rb_objsize, flags))
 		return -1;
 
 	to_copy = MIN(rb_count, count);
@@ -1179,6 +1179,68 @@ static void dynamic_limit_grow(void)
 	rb_destroy(rb);
 }
 
+static int is_mutex_locked(pthread_mutex_t *mutex)
+{
+	int ret = pthread_mutex_trylock(mutex);
+	if (ret == 0)
+		pthread_mutex_unlock(mutex);
+	return !!ret;
+}
+static void commit_continue(int commit_claim_api)
+{
+	struct rb *rb;
+	void *buf;
+	size_t count;
+	size_t object_size;
+	char n, m;
+
+	rb = rb_new(8, 1, rb_multithread);
+	mt_fail(is_mutex_locked(&rb->write_lock) == 0);
+	mt_fail(is_mutex_locked(&rb->read_lock) == 0);
+
+	for (int j = n = m = 0; j < 5; j++) {
+		mt_fok(rb_write_claim(rb, &buf, &count, &object_size));
+		for (int i = 0; i < 5; i++) {
+			*(char *)buf = n++;
+			if (commit_claim_api) {
+				count = 1;
+				mt_fok(rb_write_commit_claim(rb, &buf, &count, &object_size));
+			}
+			else {
+				mt_fok(rb_send_commit(rb, 1, rb_continue));
+				mt_fok(rb_send_claim(rb, &buf, &count, &object_size, rb_continue));
+			}
+			mt_fail(is_mutex_locked(&rb->write_lock) == 1);
+			mt_fail(is_mutex_locked(&rb->read_lock) == 0);
+		}
+		*(char *)buf = n++;
+		mt_fok(rb_write_commit(rb, 1));
+		mt_fail(is_mutex_locked(&rb->write_lock) == 0);
+		mt_fail(is_mutex_locked(&rb->read_lock) == 0);
+
+		mt_fok(rb_read_claim(rb, &buf, &count, &object_size));
+		for (int i = 0; i < 5; i++) {
+			mt_fail(m++ == *(char *)buf);
+			if (commit_claim_api) {
+				count = 1;
+				mt_fok(rb_read_commit_claim(rb, &buf, &count, &object_size));
+			}
+			else {
+				mt_fok(rb_recv_commit(rb, 1, rb_continue));
+				mt_fok(rb_recv_claim(rb, &buf, &count, &object_size, rb_continue));
+			}
+			mt_fail(is_mutex_locked(&rb->write_lock) == 0);
+			mt_fail(is_mutex_locked(&rb->read_lock) == 1);
+		}
+		mt_fail(m++ == *(char *)buf);
+		mt_fok(rb_read_commit(rb, 1));
+		mt_fail(is_mutex_locked(&rb->write_lock) == 0);
+		mt_fail(is_mutex_locked(&rb->read_lock) == 0);
+	}
+
+	rb_destroy(rb);
+}
+
 int main(void)
 {
 	srand(time(NULL));
@@ -1268,6 +1330,8 @@ int main(void)
 	mt_run(mt_send_big_data_multi_receiver);
 	mt_run(write_dontwait);
 	mt_run(read_dontwait);
+	mt_run_param_named(commit_continue, 0, "commit_claim_continue_separate");
+	mt_run_param_named(commit_continue, 1, "commit_claim_continue_single");
 #endif
 
 	mt_return();
