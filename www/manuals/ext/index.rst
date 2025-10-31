@@ -15,3 +15,7 @@ extended functions
    rb_recv_commit.3.rst
    rb_recv_commit_claim.3.rst
    rb_cleanup.3.rst
+   rb_writev.3.rst
+   rb_readv.3.rst
+   rb_recvv.3.rst
+   rb_sendv.3.rst

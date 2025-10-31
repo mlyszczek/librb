@@ -1,8 +1,8 @@
 NAME
 ----
 |rb_read|, |rb_recv|, |rb_read_claim|, |rb_read_commit|, |rb_recv_claim|,
-|rb_recv_commit|, |rb_read_commit_claim|, |rb_recv_commit_claim| - read data
-from a ring buffer.
+|rb_recv_commit|, |rb_read_commit_claim|, |rb_recv_commit_claim|,
+|rb_readv|, |rb_recvv| - read data from a ring buffer.
 
 SYNOPSIS
 --------
@@ -11,6 +11,7 @@ SYNOPSIS
    #include <rb.h>
 
    long rb_read(struct rb *rb, void *buffer, size_t count);
+   long rb_readv(struct rb *rb, const struct rb_iovec *vec, int iovcnt);
    int rb_read_claim(struct rb *rb, void **buffer, size_t *count,
        size_t *object_size);
    int rb_read_commit(struct rb *rb, size_t count);
@@ -18,6 +19,8 @@ SYNOPSIS
        size_t *object_size)
 
    long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags);
+   long rb_recvv(struct rb *rb, const struct rb_iovec *vec, int iovcnt,
+       enum rb_flags flags);
    int rb_recv_claim(struct rb *rb, void **buffer, size_t *count,
        size_t *object_size, enum rb_flags flags);
    int rb_recv_commit(struct rb *rb, size_t count, enum rb_flags flags);
@@ -61,6 +64,23 @@ behavior for one single call. Possible flags are:
       - Read data normally but do not block if buffer is empty. Instead return
         error.
 
+|rb_readv| instead of accepting single buffer, takes vector of buffers instead.
+This is scatter "input". When *rb* is not dynamic, this is equivalent of just
+calling |rb_read| in a loop, one time for each buffer in *vec* vector. For
+dynamic buffers, created with **rb_dynamic** flag, this will behave same as
+if you passed single buffer with the size of all **vec[].len**, but data
+instead of landing in a single buffer, will be scattered across buffers in
+*vec*. This means that only single dynamic object will be taken from the
+buffer. Last buffer can be larger than data in the *rb* buffer, in which
+case all buffers will be filled in, and last buffer will have less bytes.
+Function returns total number of bytes read, so you should do your own math
+if that information matters to you. When function returns success, it is
+guaranteed that single call will take single object from *rb* buffer and
+scatter the data without interrupts - in other words, reads are atomic.
+
+|rb_recvv| behaves the same but takes same flags as |rb_recv| to alter per
+call behavior.
+
 |rb_read_claim| doesn't read anything from the *rb* buffer, but instead gives
 you all the information needed for you to perform the read. On successful
 return, *buffer* will be pointing at first readable byte, and you can read
@@ -91,10 +111,10 @@ returned *buffer* as with |rb_read_claim|.
 
 RETURN VALUE
 ------------
-|rb_read| and |rb_recv| will return number of elements actually read from
-ring buffer. |rb_read_commit|, |rb_read_claim|, |rb_recv_commit|,
-|rb_recv_claim|, |rb_read_commit_claim| and |rb_recv_commit_claim| return 0
-on success.
+|rb_read|, |rb_recv|, |rb_readv| and |rb_recvv| will return number of
+elements actually read from ring buffer. |rb_read_commit|, |rb_read_claim|,
+|rb_recv_commit|, |rb_recv_claim|, |rb_read_commit_claim| and
+|rb_recv_commit_claim| return 0 on success.
 
 All functions will return -1 on errors with *errno* variable set that will
 describe an error. If error is returned no data is removed from the buffer.
@@ -160,5 +180,23 @@ have to create any intermediate buffer and do double copying.
    /* tell rb, how many bytes we actually used, write() may return
     * less than we asked it to send */
    rb_read_commit(rb, nwritten / object_size);
+
+Perform scatter read on dynamic ring buffer
+
+.. code-block:: c
+
+   char str[] = "test\0data\0to\0read\n\0";
+   char a[5], b[5], c[3], d[16];
+   struct rb_iovec iov[] = {
+       { .base = a, .len = sizeof(a) },
+       { .base = b, .len = sizeof(b) },
+       { .base = c, .len = sizeof(c) },
+       { .base = d, .len = sizeof(d) },
+    };
+
+    rb_write(rb, str, sizeof(str));
+    rb_readv(rb, iov, rb_array_size(iov));
+    printf("%s %s %s %s", a, b, c, d);
+    /* will print "test data to read" */
 
 .. include:: /in/footer.in

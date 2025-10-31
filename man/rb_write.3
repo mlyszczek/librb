@@ -28,12 +28,12 @@ level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
 .\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
 .in \\n[rst2man-indent\\n[rst2man-indent-level]]u
 ..
-.TH "RB_WRITE" "3" "Oct 18, 2025" "" "librb"
+.TH "RB_WRITE" "3" "Oct 31, 2025" "" "librb"
 .SH NAME
 .sp
-\fI\%rb_write(3)\fP, \fI\%rb_send(3)\fP, \fI\%rb_write_claim(3)\fP, \fI\%rb_write_commit(3)\fP, \fI\%rb_send_claim(3)\fP,
-\fI\%rb_send_commit(3)\fP, \fI\%rb_write_commit_claim(3)\fP, \fI\%rb_send_commit_claim(3)\fP \- write data
-to a ring buffer.
+\fI\%rb_write(3)\fP, \fI\%rb_send(3)\fP, \fI\%rb_writev(3)\fP, \fI\%rb_sendv(3)\fP, \fI\%rb_write_claim(3)\fP,
+\fI\%rb_write_commit(3)\fP, \fI\%rb_send_claim(3)\fP, \fI\%rb_send_commit(3)\fP, \fI\%rb_write_commit_claim(3)\fP,
+\fI\%rb_send_commit_claim(3)\fP \- write data to a ring buffer.
 .SH SYNOPSIS
 .INDENT 0.0
 .INDENT 3.5
@@ -42,6 +42,7 @@ to a ring buffer.
 #include <rb.h>
 
 rb_write(struct rb *rb, const void *buffer, size_t count);
+long rb_writev(struct rb *rb, const struct rb_iovec *vec, int iovcnt);
 long rb_write_claim(struct rb *rb, void **buffer, size_t *count,
     size_t *object_size);
 long rb_write_commit(struct rb *rb, size_t count);
@@ -49,6 +50,8 @@ long rb_write_commit_claim(struct rb *rb, void **buffer, size_t *count,
     size_t *object_size);
 
 rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flags);
+long rb_sendv(struct rb *rb, const struct rb_iovec *vec, int iovcnt,
+    enum rb_flags flags);
 rb_send_claim(struct rb *rb, void **buffer, size_t *count,
     size_t *object_size, enum rb_flags flags);
 long rb_send_commit(struct rb *rb, size_t count, enum rb_flags flags);
@@ -99,6 +102,22 @@ Write data normally but do not block if buffer is full. Instead return
 error.
 T}
 .TE
+.sp
+\fI\%rb_writev(3)\fP instead of accepting single buffer, takes vector of buffers
+instead. This is gather \(dqoutput\(dq. When \fIrb\fP is not dynamic, this is equivalent
+of just calling \fI\%rb_write(3)\fP in a loop, one time for each buffer in \fIvec\fP vector.
+For dynamic buffers, created with \fBrb_dynamic\fP flag, this will behave same
+as if you passed single buffer with the size of all \fBvec[].len\fP, but data
+instead of being read from a single buffer is gathered from multiple buffers.
+This means only single dynamic object will be created in ring buffer from all
+of passed buffers. Function works in all\-or\-nothing way, either all buffers
+are written or error is returned. Write is performed atomically, it is
+guaranteed that after function return success, buffers will create one
+continuous area. Buffers are processed in array order, \fIvec[0]\fP will be fully
+written before proceeding to \fIvec[1]\fP and so on.
+.sp
+\fI\%rb_sendv(3)\fP behaves the same way, but also accepts flags to alter per call
+behavior.
 .sp
 \fI\%rb_write_claim(3)\fP doesn\(aqt write anything to the \fIrb\fP buffer, but instead gives
 you all the information needed for you to perform the write. On successful
@@ -244,12 +263,38 @@ rb_write_commit(rb, nread / object_size);
 .EE
 .UNINDENT
 .UNINDENT
+.sp
+Perform gather write on dynamic ring buffer
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+char rdbuf[32];
+char a[] = \(dqtest \(dq;
+char b[] = \(dqdata \(dq;
+char c[] = \(dqto \(dq;
+char d[] = \(dqwrite\en\(dq;
+struct rb_iovec iov[] = {
+    { .base = a, .len = strlen(a) },
+    { .base = b, .len = strlen(b) },
+    { .base = c, .len = strlen(c) },
+    { .base = d, .len = strlen(d) },
+ };
+
+ rb_writev(rb, iov, rb_array_size(iov));
+ rb_read(rb, rdbuf, sizeof(rdbuf));
+ printf(\(dq%s\(dq, rdbuf);
+ /* will print \(dqtest data to write\(dq */
+.EE
+.UNINDENT
+.UNINDENT
 .SH SEE ALSO
 .sp
 \fI\%rb_new(3)\fP, \fI\%rb_init(3)\fP, \fI\%rb_destroy(3)\fP, \fI\%rb_cleanup(3)\fP, \fI\%rb_write(3)\fP, \fI\%rb_send(3)\fP,
-\fI\%rb_read(3)\fP, \fI\%rb_recv(3)\fP, \fI\%rb_read_claim(3)\fP, \fI\%rb_read_commit(3)\fP, \fI\%rb_write_claim(3)\fP,
-\fI\%rb_write_commit(3)\fP, \fI\%rb_clear(3)\fP, \fI\%rb_discard(3)\fP, \fI\%rb_count(3)\fP, \fI\%rb_space(3)\fP,
-\fI\%rb_stop(3)\fP, \fI\%rb_peek_size(3)\fP, \fI\%rb_set_hard_max_count(3)\fP
+\fI\%rb_writev(3)\fP, \fI\%rb_sendv(3)\fP, \fI\%rb_read(3)\fP, \fI\%rb_recv(3)\fP, \fI\%rb_readv(3)\fP, \fI\%rb_recvv(3)\fP,
+\fI\%rb_read_claim(3)\fP, \fI\%rb_read_commit(3)\fP, \fI\%rb_write_claim(3)\fP, \fI\%rb_write_commit(3)\fP,
+\fI\%rb_clear(3)\fP, \fI\%rb_discard(3)\fP, \fI\%rb_count(3)\fP, \fI\%rb_space(3)\fP, \fI\%rb_stop(3)\fP,
+\fI\%rb_peek_size(3)\fP, \fI\%rb_set_hard_max_count(3)\fP
 .SH AUTHOR
 Michał Łyszczek <michal.lyszczek@bofc.pl>
 .SH COPYRIGHT

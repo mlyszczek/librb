@@ -27,7 +27,7 @@ level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
 .\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
 .in \\n[rst2man-indent\\n[rst2man-indent-level]]u
 ..
-.TH "RB_INIT" "3" "Oct 18, 2025" "" "librb"
+.TH "RB_INIT" "3" "Oct 31, 2025" "" "librb"
 .SH NAME
 .sp
 \fI\%rb_new(3)\fP, \fI\%rb_init(3)\fP \- initialize new ring buffer
@@ -208,9 +208,10 @@ rb_init(&rb, buffer, rb_array_size(buffer), sizeof(*buffer), 0);
 .SH SEE ALSO
 .sp
 \fI\%rb_new(3)\fP, \fI\%rb_init(3)\fP, \fI\%rb_destroy(3)\fP, \fI\%rb_cleanup(3)\fP, \fI\%rb_write(3)\fP, \fI\%rb_send(3)\fP,
-\fI\%rb_read(3)\fP, \fI\%rb_recv(3)\fP, \fI\%rb_read_claim(3)\fP, \fI\%rb_read_commit(3)\fP, \fI\%rb_write_claim(3)\fP,
-\fI\%rb_write_commit(3)\fP, \fI\%rb_clear(3)\fP, \fI\%rb_discard(3)\fP, \fI\%rb_count(3)\fP, \fI\%rb_space(3)\fP,
-\fI\%rb_stop(3)\fP, \fI\%rb_peek_size(3)\fP, \fI\%rb_set_hard_max_count(3)\fP
+\fI\%rb_writev(3)\fP, \fI\%rb_sendv(3)\fP, \fI\%rb_read(3)\fP, \fI\%rb_recv(3)\fP, \fI\%rb_readv(3)\fP, \fI\%rb_recvv(3)\fP,
+\fI\%rb_read_claim(3)\fP, \fI\%rb_read_commit(3)\fP, \fI\%rb_write_claim(3)\fP, \fI\%rb_write_commit(3)\fP,
+\fI\%rb_clear(3)\fP, \fI\%rb_discard(3)\fP, \fI\%rb_count(3)\fP, \fI\%rb_space(3)\fP, \fI\%rb_stop(3)\fP,
+\fI\%rb_peek_size(3)\fP, \fI\%rb_set_hard_max_count(3)\fP
 .SH AUTHOR
 Michał Łyszczek <michal.lyszczek@bofc.pl>
 .SH COPYRIGHT

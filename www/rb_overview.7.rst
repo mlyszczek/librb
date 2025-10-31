@@ -141,7 +141,10 @@ fine-grained control is needed:
       - commit data to ring buffer and release buffer
     * - |rb_send_commit_claim|
       - commit data then immediately claim another buffer without unlocking
-
+    * - |rb_readv|, |rb_recvv|
+      - takes vector of buffers instead of single buffer - performs scatter read
+    * - |rb_writev|, |rb_sendv|
+      - takes vector of buffers instead of single buffer - performs gather write
 
 DESCRIPTION
 -----------

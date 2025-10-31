@@ -1,6 +1,7 @@
 SEE ALSO
 --------
 |rb_new|, |rb_init|, |rb_destroy|, |rb_cleanup|, |rb_write|, |rb_send|,
-|rb_read|, |rb_recv|, |rb_read_claim|, |rb_read_commit|, |rb_write_claim|,
-|rb_write_commit|, |rb_clear|, |rb_discard|, |rb_count|, |rb_space|,
-|rb_stop|, |rb_peek_size|, |rb_set_hard_max_count|
+|rb_writev|, |rb_sendv|, |rb_read|, |rb_recv|, |rb_readv|, |rb_recvv|,
+|rb_read_claim|, |rb_read_commit|, |rb_write_claim|, |rb_write_commit|,
+|rb_clear|, |rb_discard|, |rb_count|, |rb_space|, |rb_stop|,
+|rb_peek_size|, |rb_set_hard_max_count|

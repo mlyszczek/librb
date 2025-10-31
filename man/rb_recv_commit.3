@@ -28,12 +28,12 @@ level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
 .\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
 .in \\n[rst2man-indent\\n[rst2man-indent-level]]u
 ..
-.TH "RB_RECV_COMMIT" "3" "Oct 18, 2025" "" "librb"
+.TH "RB_RECV_COMMIT" "3" "Oct 31, 2025" "" "librb"
 .SH NAME
 .sp
 \fI\%rb_read(3)\fP, \fI\%rb_recv(3)\fP, \fI\%rb_read_claim(3)\fP, \fI\%rb_read_commit(3)\fP, \fI\%rb_recv_claim(3)\fP,
-\fI\%rb_recv_commit(3)\fP, \fI\%rb_read_commit_claim(3)\fP, \fI\%rb_recv_commit_claim(3)\fP \- read data
-from a ring buffer.
+\fI\%rb_recv_commit(3)\fP, \fI\%rb_read_commit_claim(3)\fP, \fI\%rb_recv_commit_claim(3)\fP,
+\fI\%rb_readv(3)\fP, \fI\%rb_recvv(3)\fP \- read data from a ring buffer.
 .SH SYNOPSIS
 .INDENT 0.0
 .INDENT 3.5
@@ -42,6 +42,7 @@ from a ring buffer.
 #include <rb.h>
 
 long rb_read(struct rb *rb, void *buffer, size_t count);
+long rb_readv(struct rb *rb, const struct rb_iovec *vec, int iovcnt);
 int rb_read_claim(struct rb *rb, void **buffer, size_t *count,
     size_t *object_size);
 int rb_read_commit(struct rb *rb, size_t count);
@@ -49,6 +50,8 @@ int rb_read_commit_claim(struct rb *rb, void **buffer, size_t *count,
     size_t *object_size)
 
 long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags);
+long rb_recvv(struct rb *rb, const struct rb_iovec *vec, int iovcnt,
+    enum rb_flags flags);
 int rb_recv_claim(struct rb *rb, void **buffer, size_t *count,
     size_t *object_size, enum rb_flags flags);
 int rb_recv_commit(struct rb *rb, size_t count, enum rb_flags flags);
@@ -105,6 +108,23 @@ error.
 T}
 .TE
 .sp
+\fI\%rb_readv(3)\fP instead of accepting single buffer, takes vector of buffers instead.
+This is scatter \(dqinput\(dq. When \fIrb\fP is not dynamic, this is equivalent of just
+calling \fI\%rb_read(3)\fP in a loop, one time for each buffer in \fIvec\fP vector. For
+dynamic buffers, created with \fBrb_dynamic\fP flag, this will behave same as
+if you passed single buffer with the size of all \fBvec[].len\fP, but data
+instead of landing in a single buffer, will be scattered across buffers in
+\fIvec\fP\&. This means that only single dynamic object will be taken from the
+buffer. Last buffer can be larger than data in the \fIrb\fP buffer, in which
+case all buffers will be filled in, and last buffer will have less bytes.
+Function returns total number of bytes read, so you should do your own math
+if that information matters to you. When function returns success, it is
+guaranteed that single call will take single object from \fIrb\fP buffer and
+scatter the data without interrupts \- in other words, reads are atomic.
+.sp
+\fI\%rb_recvv(3)\fP behaves the same but takes same flags as \fI\%rb_recv(3)\fP to alter per
+call behavior.
+.sp
 \fI\%rb_read_claim(3)\fP doesn\(aqt read anything from the \fIrb\fP buffer, but instead gives
 you all the information needed for you to perform the read. On successful
 return, \fIbuffer\fP will be pointing at first readable byte, and you can read
@@ -134,10 +154,10 @@ to the buffer, same calling \fI\%rb_read_commit(3)\fP\&. As output it defines si
 returned \fIbuffer\fP as with \fI\%rb_read_claim(3)\fP\&.
 .SH RETURN VALUE
 .sp
-\fI\%rb_read(3)\fP and \fI\%rb_recv(3)\fP will return number of elements actually read from
-ring buffer. \fI\%rb_read_commit(3)\fP, \fI\%rb_read_claim(3)\fP, \fI\%rb_recv_commit(3)\fP,
-\fI\%rb_recv_claim(3)\fP, \fI\%rb_read_commit_claim(3)\fP and \fI\%rb_recv_commit_claim(3)\fP return 0
-on success.
+\fI\%rb_read(3)\fP, \fI\%rb_recv(3)\fP, \fI\%rb_readv(3)\fP and \fI\%rb_recvv(3)\fP will return number of
+elements actually read from ring buffer. \fI\%rb_read_commit(3)\fP, \fI\%rb_read_claim(3)\fP,
+\fI\%rb_recv_commit(3)\fP, \fI\%rb_recv_claim(3)\fP, \fI\%rb_read_commit_claim(3)\fP and
+\fI\%rb_recv_commit_claim(3)\fP return 0 on success.
 .sp
 All functions will return \-1 on errors with \fIerrno\fP variable set that will
 describe an error. If error is returned no data is removed from the buffer.
@@ -219,12 +239,35 @@ rb_read_commit(rb, nwritten / object_size);
 .EE
 .UNINDENT
 .UNINDENT
+.sp
+Perform scatter read on dynamic ring buffer
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+char str[] = \(dqtest\e0data\e0to\e0read\en\e0\(dq;
+char a[5], b[5], c[3], d[16];
+struct rb_iovec iov[] = {
+    { .base = a, .len = sizeof(a) },
+    { .base = b, .len = sizeof(b) },
+    { .base = c, .len = sizeof(c) },
+    { .base = d, .len = sizeof(d) },
+ };
+
+ rb_write(rb, str, sizeof(str));
+ rb_readv(rb, iov, rb_array_size(iov));
+ printf(\(dq%s %s %s %s\(dq, a, b, c, d);
+ /* will print \(dqtest data to read\(dq */
+.EE
+.UNINDENT
+.UNINDENT
 .SH SEE ALSO
 .sp
 \fI\%rb_new(3)\fP, \fI\%rb_init(3)\fP, \fI\%rb_destroy(3)\fP, \fI\%rb_cleanup(3)\fP, \fI\%rb_write(3)\fP, \fI\%rb_send(3)\fP,
-\fI\%rb_read(3)\fP, \fI\%rb_recv(3)\fP, \fI\%rb_read_claim(3)\fP, \fI\%rb_read_commit(3)\fP, \fI\%rb_write_claim(3)\fP,
-\fI\%rb_write_commit(3)\fP, \fI\%rb_clear(3)\fP, \fI\%rb_discard(3)\fP, \fI\%rb_count(3)\fP, \fI\%rb_space(3)\fP,
-\fI\%rb_stop(3)\fP, \fI\%rb_peek_size(3)\fP, \fI\%rb_set_hard_max_count(3)\fP
+\fI\%rb_writev(3)\fP, \fI\%rb_sendv(3)\fP, \fI\%rb_read(3)\fP, \fI\%rb_recv(3)\fP, \fI\%rb_readv(3)\fP, \fI\%rb_recvv(3)\fP,
+\fI\%rb_read_claim(3)\fP, \fI\%rb_read_commit(3)\fP, \fI\%rb_write_claim(3)\fP, \fI\%rb_write_commit(3)\fP,
+\fI\%rb_clear(3)\fP, \fI\%rb_discard(3)\fP, \fI\%rb_count(3)\fP, \fI\%rb_space(3)\fP, \fI\%rb_stop(3)\fP,
+\fI\%rb_peek_size(3)\fP, \fI\%rb_set_hard_max_count(3)\fP
 .SH AUTHOR
 Michał Łyszczek <michal.lyszczek@bofc.pl>
 .SH COPYRIGHT

@@ -13,15 +13,18 @@
 .. |rb_read_claim| replace:: :ref:`rb_read_claim(3) <manuals/claim/rb_read_claim.3:rb_read_claim>`
 .. |rb_read_commit_claim| replace:: :ref:`rb_read_commit_claim(3) <manuals/claim/rb_read_commit_claim.3:rb_read_commit_claim>`
 .. |rb_read_commit| replace:: :ref:`rb_read_commit(3) <manuals/claim/rb_read_commit.3:rb_read_commit>`
+.. |rb_readv| replace:: :ref:`rb_readv(3) <manuals/ext/rb_readv.3:rb_readv>`
 .. |rb_read| replace:: :ref:`rb_read(3) <manuals/base/rb_read.3:rb_read>`
 .. |rb_recv_claim| replace:: :ref:`rb_recv_claim(3) <manuals/ext/rb_recv_claim.3:rb_recv_claim>`
 .. |rb_recv_commit_claim| replace:: :ref:`rb_recv_commit_claim(3) <manuals/ext/rb_recv_commit_claim.3:rb_recv_commit_claim>`
 .. |rb_recv_commit| replace:: :ref:`rb_recv_commit(3) <manuals/ext/rb_recv_commit.3:rb_recv_commit>`
+.. |rb_recvv| replace:: :ref:`rb_recvv(3) <manuals/ext/rb_recvv.3:rb_recvv>`
 .. |rb_recv| replace:: :ref:`rb_recv(3) <manuals/ext/rb_recv.3:rb_recv>`
 .. |rb_round_count| replace:: :ref:`rb_round_count <rb_round_count>`
 .. |rb_send_claim| replace:: :ref:`rb_send_claim(3) <manuals/ext/rb_send_claim.3:rb_send_claim>`
 .. |rb_send_commit_claim| replace:: :ref:`rb_send_commit_claim(3) <manuals/ext/rb_send_commit_claim.3:rb_send_commit_claim>`
 .. |rb_send_commit| replace:: :ref:`rb_send_commit(3) <manuals/ext/rb_send_commit.3:rb_send_commit>`
+.. |rb_sendv| replace:: :ref:`rb_sendv(3) <manuals/ext/rb_sendv.3:rb_sendv>`
 .. |rb_send| replace:: :ref:`rb_send(3) <manuals/ext/rb_send.3:rb_send>`
 .. |rb_set_hard_max_count| replace:: :ref:`rb_set_hard_max_count(3) <manuals/control/rb_set_hard_max_count.3:rb_set_hard_max_count>`
 .. |rb_space| replace:: :ref:`rb_space(3) <manuals/control/rb_space.3:rb_space>`
@@ -29,4 +32,5 @@
 .. |rb_write_claim| replace:: :ref:`rb_write_claim(3) <manuals/claim/rb_write_claim.3:rb_write_claim>`
 .. |rb_write_commit_claim| replace:: :ref:`rb_write_commit_claim(3) <manuals/claim/rb_write_commit_claim.3:rb_write_commit_claim>`
 .. |rb_write_commit| replace:: :ref:`rb_write_commit(3) <manuals/claim/rb_write_commit.3:rb_write_commit>`
+.. |rb_writev| replace:: :ref:`rb_writev(3) <manuals/ext/rb_writev.3:rb_writev>`
 .. |rb_write| replace:: :ref:`rb_write(3) <manuals/base/rb_write.3:rb_write>`

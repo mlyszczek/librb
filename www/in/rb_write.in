@@ -1,8 +1,8 @@
 NAME
 ----
-|rb_write|, |rb_send|, |rb_write_claim|, |rb_write_commit|, |rb_send_claim|,
-|rb_send_commit|, |rb_write_commit_claim|, |rb_send_commit_claim| - write data
-to a ring buffer.
+|rb_write|, |rb_send|, |rb_writev|, |rb_sendv|, |rb_write_claim|,
+|rb_write_commit|, |rb_send_claim|, |rb_send_commit|, |rb_write_commit_claim|,
+|rb_send_commit_claim| - write data to a ring buffer.
 
 SYNOPSIS
 --------
@@ -11,6 +11,7 @@ SYNOPSIS
    #include <rb.h>
 
    rb_write(struct rb *rb, const void *buffer, size_t count);
+   long rb_writev(struct rb *rb, const struct rb_iovec *vec, int iovcnt);
    long rb_write_claim(struct rb *rb, void **buffer, size_t *count,
        size_t *object_size);
    long rb_write_commit(struct rb *rb, size_t count);
@@ -18,6 +19,8 @@ SYNOPSIS
        size_t *object_size);
 
    rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flags);
+   long rb_sendv(struct rb *rb, const struct rb_iovec *vec, int iovcnt,
+       enum rb_flags flags);
    rb_send_claim(struct rb *rb, void **buffer, size_t *count,
        size_t *object_size, enum rb_flags flags);
    long rb_send_commit(struct rb *rb, size_t count, enum rb_flags flags);
@@ -59,6 +62,22 @@ behavior for one single call. Possible flags are:
     * - rb_dontwait
       - Write data normally but do not block if buffer is full. Instead return
         error.
+
+|rb_writev| instead of accepting single buffer, takes vector of buffers
+instead. This is gather "output". When *rb* is not dynamic, this is equivalent
+of just calling |rb_write| in a loop, one time for each buffer in *vec* vector.
+For dynamic buffers, created with **rb_dynamic** flag, this will behave same
+as if you passed single buffer with the size of all **vec[].len**, but data
+instead of being read from a single buffer is gathered from multiple buffers.
+This means only single dynamic object will be created in ring buffer from all
+of passed buffers. Function works in all-or-nothing way, either all buffers
+are written or error is returned. Write is performed atomically, it is
+guaranteed that after function return success, buffers will create one
+continuous area. Buffers are processed in array order, *vec[0]* will be fully
+written before proceeding to *vec[1]* and so on.
+
+|rb_sendv| behaves the same way, but also accepts flags to alter per call
+behavior.
 
 |rb_write_claim| doesn't write anything to the *rb* buffer, but instead gives
 you all the information needed for you to perform the write. On successful
@@ -188,5 +207,26 @@ copying.
    /* tell rb, how many bytes we actually used, read() may return
     * less than we asked it to read */
    rb_write_commit(rb, nread / object_size);
+
+Perform gather write on dynamic ring buffer
+
+.. code-block:: c
+
+   char rdbuf[32];
+   char a[] = "test ";
+   char b[] = "data ";
+   char c[] = "to ";
+   char d[] = "write\n";
+   struct rb_iovec iov[] = {
+       { .base = a, .len = strlen(a) },
+       { .base = b, .len = strlen(b) },
+       { .base = c, .len = strlen(c) },
+       { .base = d, .len = strlen(d) },
+    };
+
+    rb_writev(rb, iov, rb_array_size(iov));
+    rb_read(rb, rdbuf, sizeof(rdbuf));
+    printf("%s", rdbuf);
+    /* will print "test data to write" */
 
 .. include:: /in/footer.in
