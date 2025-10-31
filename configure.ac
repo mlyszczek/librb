@@ -40,6 +40,24 @@ AS_IF([test "x$enable_threads" = "xyes"],
 ])
 AC_SUBST(ENABLE_THREADS)
 
+# --enable-iov
+AC_ARG_ENABLE([iov],
+    AS_HELP_STRING([--enable-iov], [Enable io vector operations]),
+    [], [enable_iov="yes"])
+
+ENABLE_IOV=0
+AS_IF([test "x$enable_iov" = "xyes"],
+[
+    ENABLE_IOV=1
+    AC_DEFINE([ENABLE_IOV], [1], [Enable io vector operations])
+],
+# else
+[
+    enable_iov="no"
+])
+AC_SUBST(ENABLE_IOV)
+
+
 # --enable-docs
 AC_ARG_ENABLE([docs],
 	AS_HELP_STRING([--enable-docs], [Build man pages and html docs]),
@@ -81,5 +99,6 @@ echo
 echo "librb compilation configuration summary"
 echo
 echo "enable threads.........: $enable_threads"
+echo "enable io vector.......: $enable_iov"
 echo "enable trace messages..: $enable_trace"
 echo "build docs.............: $enable_docs"

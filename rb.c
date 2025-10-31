@@ -66,6 +66,7 @@
  *               ░▀▀░░▀▀▀░▀▀▀░▀▀▀░▀░▀░▀░▀░▀░▀░░▀░░▀▀▀░▀▀▀░▀░▀░▀▀▀
  * ========================================================================== */
 #define return_errno(R, E) do { errno = E; return R; } while (0)
+#define goto_errno(L, E) do { errno = E; goto L; } while (0)
 #define trylock(L) (trace("try lock " #L), pthread_mutex_trylock(&L))
 #define lock(L) do { pthread_mutex_lock(&L); trace("lock " #L); } while (0)
 #define unlock(L) do { pthread_mutex_unlock(&L); trace("unlock " #L); } while (0)
@@ -889,6 +890,130 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags)
 #endif
 }
 
+#if ENABLE_IOV
+/** =========================================================================
+ * Same as #rb_readv() but also accepts flags to alter per-call behavior.
+ *
+ * Flags are the same as described in #rb_recv() function.
+ *
+ * @param rb ring buffer object
+ * @param vec vector of buffers to fill in
+ * @param iovcnt number of elements in #vec
+ * @param flags per-call flags
+ *
+ * @return >0 number of elements copied from ring buffer, or for dynamic
+ *         buffer, number of bytes
+ * @return -1 on errors
+ *
+ * @exception EAGAIN ring buffer is empty, nothing copied to #vec
+ * @exception EINVAL invalid parameter passed
+ * @exception ENOBUFS #rb is #rb_dynamic and there is data on #rb, but
+ *            #vec buffers are not big enough to hold whole message
+ * ========================================================================== */
+long rb_recvv(struct rb *rb, const struct rb_iovec *vec, int iovcnt,
+	enum rb_flags flags)
+{
+	size_t total_len;
+	long ret = 0, nread = 0, left;
+	int i;
+	size_t dyn_next_count;
+	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+	VALID(EINVAL, rb);
+	VALID(EINVAL, vec);
+	VALID(EINVAL, iovcnt);
+
+	if (!RB_IS_DYNAMIC(rb)) {
+		for (int i = nread = 0; i != iovcnt; i++)
+			if ((ret = rb_recv(rb, vec[i].base, vec[i].len, flags)) == vec[i].len)
+				nread += ret;
+			else if (ret > 0) /* partial read */
+				return nread + ret;
+			else /* error reading */
+				break;
+		return nread ? nread : -1;
+	}
+
+	for (int i = total_len = 0; i != iovcnt; i++)
+		total_len += vec[i].len;
+
+	if (total_len == 0)
+		return 0;
+
+	if (total_len > (size_t)LONG_MAX)
+		return_errno(-1, EINVAL);
+
+	if (total_len && rb_count(rb) == 0)
+		return_errno(-1, EAGAIN);
+
+#if ENABLE_THREADS
+	if (rb->flags & rb_multithread) {
+		if (rb_trylock(rb, flags, &rb->read_lock))
+			return -1;
+		if (rb_wait_for_data(rb, 1, 0, flags))
+			goto end;
+	}
+#endif
+
+	dyn_next_count = rb_dynamic_read_count(rb, rb_peek);
+	if (total_len < dyn_next_count)
+		goto_errno(end, ENOBUFS);
+
+	for (left = rb_dynamic_read_count(rb, 0), i = 0; left || i < iovcnt; i++) {
+		ret = rb_copy_from(rb, vec[i].base, MIN(vec[i].len, left), 0);
+		left -= ret;
+		nread += ret;
+	}
+
+end:
+#if ENABLE_THREADS
+	if (rb->flags & rb_multithread) {
+		if (nread)
+			rb_sem_post(&rb->read_sem);
+		unlock(rb->write_lock);
+	}
+#endif
+
+	return nread ? nread : -1;
+}
+
+/** =========================================================================
+ * Same as #rb_read() but instead of single buffer, accepts vector of buffers
+ * to fill in (scatter "input").
+ *
+ * For non-dynamic buffer, this is equivalent to calling #rb_read() in a loop
+ * one time for each buffer in #vec. It's possible that function will return
+ * copy less objects than requested.
+ *
+ * For dynamic buffer, function will fill in buffers as if user passed a
+ * single buffer, but data instead of will be copied to multiple buffers.
+ * This means only 1 object will be taken off the buffer and content of this
+ * object will be scattered in buffers described by #vec. If sum of buffers
+ * is not enough to hold single object, error is returned and ring buffer
+ * content is not modified.
+ *
+ * All buffers are filled in in array order. Last buffer can be larger than
+ * data that resides in ring buffer.
+ *
+ * @param rb ring buffer object
+ * @param vec vector of buffers to fill in
+ * @param iovcnt number of elements in #vec
+ *
+ * @return >0 number of elements copied from ring buffer, or for dynamic
+ *         buffer, number of bytes
+ * @return -1 on errors
+ *
+ * @exception EAGAIN ring buffer is empty, nothing copied to #vec
+ * @exception EINVAL invalid parameter passed
+ * @exception ENOBUFS #rb is #rb_dynamic and there is data on #rb, but
+ *            #vec buffers are not big enough to hold whole message
+ * ========================================================================== */
+long rb_readv(struct rb *rb, const struct rb_iovec *vec, int iovcnt)
+{
+	return rb_recvv(rb, vec, iovcnt, 0);
+}
+#endif
+
 /** =========================================================================
  * Increase #rb->head pointer by #count
  * ========================================================================== */
@@ -1336,6 +1461,132 @@ long rb_write(struct rb *rb, const void *buffer, size_t count)
 {
     return rb_send(rb, buffer, count, 0);
 }
+
+#if ENABLE_IOV
+/** =========================================================================
+ * Same as #rb_writev() but accepts flags to alter per-call behavior.
+ *
+ * Flags are the same as described in #rb_send() function.
+ *
+ * @param rb ring buffer object
+ * @param vec vector of buffers to copy
+ * @param iovcnt number of elements in #vec
+ * @param flags per-call flags
+ *
+ * @return >0 number of objects copied to buffer or bytes if rb is dynamic
+ * @return -1 on errors
+ *
+ * @exception EAGAIN ring buffer is full, cannot copy anything to it
+ * @exception ENOMEM #rb is growable, but we failed to allocate more memory
+ * @exception EMSGSIZE #rb is dynamic and #count is too large. Increase
+ *            object_size in #rb creation.
+ * @exception ECANCELED rb_stop() has been called, and there was no data
+ *            written to rb, returned only when #rb it multi-threaded
+ * ========================================================================== */
+long rb_sendv(struct rb *rb, const struct rb_iovec *vec, int iovcnt,
+	enum rb_flags flags)
+{
+	size_t total_len;
+	long ret = 0, nsent = 0;
+	/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
+
+	VALID(EINVAL, rb);
+	VALID(EINVAL, vec);
+	VALID(EINVAL, iovcnt);
+
+	if (!RB_IS_DYNAMIC(rb)) {
+		for (int i = nsent = 0; i != iovcnt; i++)
+			if ((ret = rb_send(rb, vec[i].base, vec[i].len, flags)) == vec[i].len)
+				nsent += ret;
+			else if (ret > 0) /* partial write */
+				return nsent + ret;
+			else /* error writing */
+				break;
+		return nsent ? nsent : -1;
+	}
+
+	for (int i = total_len = 0; i != iovcnt; i++)
+		total_len += vec[i].len;
+
+	if (total_len == 0)
+		return 0;
+
+	if (total_len > (size_t)LONG_MAX)
+		return_errno(-1, EINVAL);
+
+#if ENABLE_THREADS
+	if (rb->flags & rb_multithread) {
+		if (rb_trylock(rb, flags, &rb->write_lock))
+			return -1;
+		if (rb_wait_for_space(rb, total_len, flags))
+			goto end;
+	}
+#endif
+
+	while ((total_len + rb_dynamic_len_size(rb)) > (size_t)rb_space(rb)) {
+		if (!RB_IS_GROWABLE(rb))
+			goto_errno(end, EAGAIN);
+		if (rb_grow(rb))
+			goto end;
+	}
+
+	if (rb_dynamic_write_count(rb, total_len))
+		goto end;
+
+	for (int i = total_len = 0; i != iovcnt; i++)
+		nsent += rb_copy_to(rb, vec[i].base, vec[i].len);
+
+end:
+#if ENABLE_THREADS
+	if (rb->flags & rb_multithread) {
+		if (nsent)
+			rb_sem_post(&rb->read_sem);
+		unlock(rb->write_lock);
+	}
+#endif
+
+	return nsent ? nsent : -1;
+}
+
+/** =========================================================================
+ * Same as #rb_write() but instead of taking single buffer can accept vector
+ * of buffers.
+ *
+ * For non dynamic operation, this is equivalent of calling #rb_send() in
+ * loop, one time for each buffer in #vec. It's possible that function will
+ * return less number of object copied than requested.
+ *
+ * For dynamic buffer, function will consolidate all buffers into a single
+ * write to ring buffer. For example, if you have 3 buffers of sizes 3, 2, 4,
+ * it will behave as if you called #rb_send() with buffer of size 3+2+4=9.
+ * All 3 buffer swill be concatenated into single continuous memory.
+ *
+ * For dynamic buffers, function work in all-or-nothing way. Either it can
+ * copy all requested buffers in #vec or error will be returned. It is
+ * guaranteed that all buffers in #vec will be continuous after function
+ * returns OK.
+ *
+ * All buffers in vector are copied in array order.
+ *
+ * @param rb ring buffer object
+ * @param vec vector of buffers to copy
+ * @param iovcnt number of elements in #vec
+ *
+ * @return >0 number of elements copied to buffer or bytes if rb is dynamic
+ * @return -1 on errors
+ *
+ * @exception EAGAIN ring buffer is full, cannot copy anything to it
+ * @exception ENOMEM #rb is growable, but we failed to allocate more memory
+ * @exception EMSGSIZE #rb is dynamic and #count is too large. Increase
+ *            object_size in #rb creation.
+ * @exception ECANCELED rb_stop() has been called, and there was no data
+ *            written to rb, returned only when #rb it multi-threaded
+ * ========================================================================== */
+long rb_writev(struct rb *rb, const struct rb_iovec *vec, int iovcnt)
+{
+	return rb_sendv(rb, vec, iovcnt, 0);
+}
+#endif
 
 /** =========================================================================
  * Claims ring buffer for writing.

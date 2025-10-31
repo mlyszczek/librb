@@ -51,6 +51,7 @@ LOG_DRIVER = env AM_TAP_AWK='$(AWK)' $(SHELL) \
 EXTRA_PROGRAMS = event_loop \
 	posix_network_parser \
 	prod_cons_threads \
+	scatter_gather \
 	simple_read_write
 
 common_src = rb.c examples/common.c
@@ -58,6 +59,7 @@ event_loop_SOURCES = $(common_src) examples/event-loop.c
 posix_network_parser_SOURCES = $(common_src) examples/posix-network-parser.c
 prod_cons_threads_SOURCES = $(common_src) examples/prod-cons-threads.c
 simple_read_write_SOURCES = $(common_src) examples/simple-read-write.c
+scatter_gather_SOURCES = $(common_src) examples/scatter-gather.c
 
 examples: $(EXTRA_PROGRAMS)
 .PHONY: examples
