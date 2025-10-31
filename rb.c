@@ -1,10 +1,10 @@
 /** =========================================================================
  * @brief     ring buffer message queue implementation
  * @author    Michał Łyszczek (michal.lyszczek@bofc.pl)
- * @date      2025-10-18
+ * @date      2025-10-31
  * @copyright Copyright by Michał Łyszczek
  * @license   BSD-2-Clause
- * @version   9999
+ * @version   2.2.0
  * @homepage  https://librb.bofc.pl/
  * @manuals   https://librb.bofc.pl/rb_overview.7.html
  * ==========================================================================
