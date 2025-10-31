@@ -1057,7 +1057,7 @@ static int rb_dynamic_write(struct rb *rb, const void *buffer, size_t count)
 static int rb_can_write(struct rb *rb, size_t count)
 {
 	if (!RB_IS_DYNAMIC(rb))
-		return rb_space(rb);
+		return !!rb_space(rb);
 	return count + rb_dynamic_len_size(rb) <= (size_t)rb_space(rb);
 }
 
@@ -1410,6 +1410,9 @@ int rb_send_claim(struct rb *rb, void **buffer, size_t *count,
 	VALID(EINVAL, buffer);
 	VALID(EINVAL, count);
 	VALID(EINVAL, object_size);
+#if !ENABLE_THREADS
+	(void)flags;
+#endif
 
 #if ENABLE_THREADS
 	if (rb->flags & rb_multithread && !(flags & rb_continue)) {
@@ -1469,6 +1472,9 @@ int rb_write_commit(struct rb *rb, size_t count)
 int rb_send_commit(struct rb *rb, size_t count, enum rb_flags flags)
 {
 	VALID(EINVAL, rb);
+#if !ENABLE_THREADS
+	(void)flags;
+#endif
 
 	rb_increase_head(rb, count);
 
@@ -1602,6 +1608,9 @@ int rb_recv_claim(struct rb *rb, void **buffer, size_t *count,
 	VALID(EINVAL, buffer);
 	VALID(EINVAL, count);
 	VALID(EINVAL, object_size);
+#if !ENABLE_THREADS
+	(void)flags;
+#endif
 
 #if ENABLE_THREADS
 	if (rb->flags & rb_multithread && !(flags & rb_continue)) {
@@ -1706,6 +1715,9 @@ int rb_read_commit(struct rb *rb, size_t count)
 int rb_recv_commit(struct rb *rb, size_t count, enum rb_flags flags)
 {
 	VALID(EINVAL, rb);
+#if !ENABLE_THREADS
+	(void)flags;
+#endif
 
 	rb_increase_tail(rb, count);
 

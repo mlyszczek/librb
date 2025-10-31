@@ -1,6 +1,6 @@
 /* ==========================================================================
    Licensed under BSD 2clause license. See LICENSE file for more information
-Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
+   Author: Michał Łyszczek <michal.lyszczek@bofc.pl>
 ========================================================================== */
 
 #if HAVE_CONFIG_H
@@ -64,15 +64,15 @@ static unsigned t_objsize;
 static int t_test_type;
 static int t_growable;
 
+mt_defs();
+
+#if ENABLE_THREADS
 static int t_nprod;
 static int t_ncons;
 static unsigned char data[250];
 static unsigned int multi_index;
 static volatile unsigned int multi_index_count;
 
-mt_defs();
-
-#if ENABLE_THREADS
 static pthread_mutex_t multi_mutex;
 static pthread_mutex_t multi_mutex_count;
 
@@ -1051,7 +1051,7 @@ static void mt_send_big_data_multi_receiver(void)
 }
 #endif
 
-
+#if ENABLE_THREADS
 static void mt_read_more_than_is_on_buffer(void)
 {
 	char buf[128];
@@ -1063,7 +1063,6 @@ static void mt_read_more_than_is_on_buffer(void)
 	rb_destroy(rb);
 }
 
-#if ENABLE_THREADS
 static void *write_dontwait_thread(void *arg)
 {
 	char buf[8] = { 0 };
@@ -1179,6 +1178,7 @@ static void dynamic_limit_grow(void)
 	rb_destroy(rb);
 }
 
+#if ENABLE_THREADS
 static int is_mutex_locked(pthread_mutex_t *mutex)
 {
 	int ret = pthread_mutex_trylock(mutex);
@@ -1186,6 +1186,7 @@ static int is_mutex_locked(pthread_mutex_t *mutex)
 		pthread_mutex_unlock(mutex);
 	return !!ret;
 }
+#endif
 static void commit_continue(int commit_claim_api)
 {
 	struct rb *rb;
@@ -1194,9 +1195,13 @@ static void commit_continue(int commit_claim_api)
 	size_t object_size;
 	char n, m;
 
+#if ENABLE_THREADS
 	rb = rb_new(8, 1, rb_multithread);
 	mt_fail(is_mutex_locked(&rb->write_lock) == 0);
 	mt_fail(is_mutex_locked(&rb->read_lock) == 0);
+#else
+	rb = rb_new(8, 1, 0);
+#endif
 
 	for (int j = n = m = 0; j < 5; j++) {
 		mt_fok(rb_write_claim(rb, &buf, &count, &object_size));
@@ -1210,13 +1215,17 @@ static void commit_continue(int commit_claim_api)
 				mt_fok(rb_send_commit(rb, 1, rb_continue));
 				mt_fok(rb_send_claim(rb, &buf, &count, &object_size, rb_continue));
 			}
+#if ENABLE_THREADS
 			mt_fail(is_mutex_locked(&rb->write_lock) == 1);
 			mt_fail(is_mutex_locked(&rb->read_lock) == 0);
+#endif
 		}
 		*(char *)buf = n++;
 		mt_fok(rb_write_commit(rb, 1));
+#if ENABLE_THREADS
 		mt_fail(is_mutex_locked(&rb->write_lock) == 0);
 		mt_fail(is_mutex_locked(&rb->read_lock) == 0);
+#endif
 
 		mt_fok(rb_read_claim(rb, &buf, &count, &object_size));
 		for (int i = 0; i < 5; i++) {
@@ -1229,13 +1238,17 @@ static void commit_continue(int commit_claim_api)
 				mt_fok(rb_recv_commit(rb, 1, rb_continue));
 				mt_fok(rb_recv_claim(rb, &buf, &count, &object_size, rb_continue));
 			}
+#if ENABLE_THREADS
 			mt_fail(is_mutex_locked(&rb->write_lock) == 0);
 			mt_fail(is_mutex_locked(&rb->read_lock) == 1);
+#endif
 		}
 		mt_fail(m++ == *(char *)buf);
 		mt_fok(rb_read_commit(rb, 1));
+#if ENABLE_THREADS
 		mt_fail(is_mutex_locked(&rb->write_lock) == 0);
 		mt_fail(is_mutex_locked(&rb->read_lock) == 0);
+#endif
 	}
 
 	rb_destroy(rb);
@@ -1250,12 +1263,12 @@ int main(void)
 	unsigned int t_writelen_max = 256;
 	unsigned int t_objsize_max = 256;
 
-	int t_nprod_max = 16;
-	int t_ncons_max = 16;
-
 	char name[128];
 
 #if ENABLE_THREADS
+	int t_nprod_max = 16;
+	int t_ncons_max = 16;
+
 	for (t_ncons = 1; t_ncons <= t_ncons_max; t_ncons++) {
 	for (t_nprod = 1; t_nprod <= t_nprod_max; t_nprod++) {
 		sprintf(name, "dynamic_producers_consumers producers: %d "
@@ -1323,6 +1336,8 @@ int main(void)
 	mt_run(dynamic_read_write_invalid_count);
 	mt_run(recv_send_zero);
 	mt_run(dynamic_limit_grow);
+	mt_run_param_named(commit_continue, 0, "commit_claim_continue_separate");
+	mt_run_param_named(commit_continue, 1, "commit_claim_continue_single");
 
 #if ENABLE_THREADS
 	mt_run(multithread_eagain);
@@ -1330,8 +1345,6 @@ int main(void)
 	mt_run(mt_send_big_data_multi_receiver);
 	mt_run(write_dontwait);
 	mt_run(read_dontwait);
-	mt_run_param_named(commit_continue, 0, "commit_claim_continue_separate");
-	mt_run_param_named(commit_continue, 1, "commit_claim_continue_single");
 #endif
 
 	mt_return();
