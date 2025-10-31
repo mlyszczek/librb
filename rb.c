@@ -605,7 +605,7 @@ static size_t rb_dynamic_read_count(struct rb *rb, int peek)
  * @param count requested number of data from rb
  * @param flags read flags
  *
- * @return Number of bytes copied to #buffer
+ * @return Number of objects copied to #buffer
  * @return -1 when no data could be copied to #buffer (rb is empty)
  *
  * @exception EAGAIN ring buffer is empty, nothing copied to #buffer
@@ -723,7 +723,7 @@ static int rb_wait_for_data(struct rb *rb, size_t count,
  * Function will block until any data is stored into #buffer,
  * unless non blocking #flag is set to 1.
  *
- * If caller passes more #count than there are bytes in #rb, function
+ * If caller passes more #count than there is data available in #rb, function
  * will copy as many as it can and will return with value less than #count.
  *
  * If #rb is non blocking or #flag is rb_nonblock when there is no
@@ -813,7 +813,7 @@ static long rb_recvt(struct rb *rb, void *buffer, size_t count,
  * @param buffer location where data from rb will be stored
  * @param count requested number of data from rb
  *
- * @return Number of bytes copied to #buffer
+ * @return Number of objects copied to #buffer
  * @return -1 when no data could be copied to #buffer (rb is empty)
  *
  * @exception EAGAIN ring buffer is empty, nothing copied to #buffer
@@ -842,7 +842,7 @@ long rb_read(struct rb *rb, void *buffer, size_t count)
  * @param count requested number of data from rb
  * @param flags single call flags
  *
- * @return Number of bytes copied to #buffer
+ * @return Number of objects copied to #buffer
  * @return -1 on error
  *
  * @exception EAGAIN ring buffer is empty, nothing copied to #buffer
@@ -916,7 +916,7 @@ static void rb_increase_head(struct rb *rb, size_t count)
  * @param buffer data to copy to ring buffer
  * @param count number of elements to copy to ring buffer
  *
- * @return number of bytes copied to ring buffer
+ * @return number of objects copied to ring buffer
  * ========================================================================== */
 static size_t rb_copy_to(struct rb *rb, const void *buffer, size_t count)
 {
@@ -1125,10 +1125,10 @@ static int rb_wait_for_space(struct rb *rb, size_t count, enum rb_flags flags)
  *
  * @param rb ring buffer to write to
  * @param buffer pointer to memory from which data shall be copied from
- * @param count requested number of bytes to copy to #rb
+ * @param count requested number of objects to copy to #rb
  * @param flags single call flags
  *
- * @return number of elements copied to ring buffer
+ * @return number of objects copied to ring buffer
  * @return -1 on errors
  *
  * @exception EAGAIN ring buffer is full, and non blocking operation has been
@@ -1215,7 +1215,7 @@ static long rb_sendt(struct rb *rb, const void *buffer, size_t count,
  * @param buffer location of data to put into rb
  * @param count number of elements to put on the rb
  *
- * @return On success function will return number of bytes copied to #buffer
+ * @return On success function will return number of objects copied to #buffer
  * @return On error -1 is returned
  *
  * @exception EAGAIN ring buffer is full, cannot copy anything to it
@@ -1271,7 +1271,7 @@ static long rb_sends(struct rb *rb, const void *buffer, size_t count)
  * @param count number of elements to put on the rb
  * @param flags single call flag
  *
- * @return On success function will return number of bytes copied to #buffer
+ * @return On success function will return number of objects copied to #buffer
  * @return On error -1 is returned
  *
  * @exception EAGAIN ring buffer is full, cannot copy anything to it
@@ -1322,7 +1322,7 @@ long rb_send(struct rb *rb, const void *buffer, size_t count, enum rb_flags flag
  * @param buffer location of data to put into rb
  * @param count number of elements to put on the rb
  *
- * @return On success function will return number of bytes copied to #buffer
+ * @return On success function will return number of objects copied to #buffer
  * @return On error -1 is returned
  *
  * @exception EAGAIN ring buffer is full, cannot copy anything to it

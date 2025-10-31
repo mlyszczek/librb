@@ -183,7 +183,7 @@ int rb_set_hard_max_count(struct rb *rb, size_t count);
  * @param buffer location where data from rb will be stored
  * @param count requested number of data from rb
  *
- * @return Number of bytes copied to #buffer
+ * @return Number of objects copied to #buffer
  * @return -1 when no data could be copied to #buffer (rb is empty)
  *
  * @exception EAGAIN ring buffer is empty, nothing copied to #buffer
@@ -209,7 +209,7 @@ long rb_read(struct rb *rb, void *buffer, size_t count);
  * @param count requested number of data from rb
  * @param flags single call flags
  *
- * @return Number of bytes copied to #buffer
+ * @return Number of objects copied to #buffer
  * @return -1 on error
  *
  * @exception EAGAIN ring buffer is empty, nothing copied to #buffer
@@ -235,7 +235,7 @@ long rb_recv(struct rb *rb, void *buffer, size_t count, enum rb_flags flags);
  * @param buffer location of data to put into rb
  * @param count number of elements to put on the rb
  *
- * @return On success function will return number of bytes copied to #buffer
+ * @return On success function will return number of objects copied to #buffer
  * @return On error -1 is returned
  *
  * @exception EAGAIN ring buffer is full, cannot copy anything to it
@@ -258,7 +258,7 @@ long rb_write(struct rb *rb, const void *buffer, size_t count);
  * @param count number of elements to put on the rb
  * @param flags single call flag
  *
- * @return On success function will return number of bytes copied to #buffer
+ * @return On success function will return number of objects copied to #buffer
  * @return On error -1 is returned
  *
  * @exception EAGAIN ring buffer is full, cannot copy anything to it
