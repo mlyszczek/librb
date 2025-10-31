@@ -1254,6 +1254,165 @@ static void commit_continue(int commit_claim_api)
 	rb_destroy(rb);
 }
 
+#if ENABLE_IOV
+void read_write_vec(void)
+{
+	struct rb *rb = rb_new(4, 4, rb_growable);
+	int a[] = { 0, 1, 2 };
+	int b[] = { 3, 4, 5, 6, 7 };
+	int c = 8;
+	int d[] = { 9 };
+	int rdbuf[16];
+	int rd_a[6];
+	int rd_b[2];
+	int rd_c;
+	int rd_d[1];
+	uint32_t rd_e[8];
+	struct rb_iovec wr[] = {
+		{ .base = a, .len = 3 },
+		{ .base = b, .len = 5 },
+		{ .base =&c, .len = 1 },
+		{ .base = d, .len = 1 },
+	};
+	struct rb_iovec rd[] = {
+		{ .base = rd_a, .len = 6 },
+		{ .base = rd_b, .len = 2 },
+		{ .base =&rd_c, .len = 1 },
+		{ .base = rd_d, .len = 1 },
+	};
+	struct rb_iovec rd2[] = {
+		{ .base = rd_a, .len = 6 },
+		{ .base = rd_e, .len = 8 },
+	};
+
+	memset(rd_a, 0x00, sizeof(rd_a));
+	memset(rd_b, 0x00, sizeof(rd_b));
+	memset(&rd_c, 0x00, sizeof(rd_c));
+	memset(rd_d, 0x00, sizeof(rd_d));
+	mt_fail(rb_writev(rb, wr, 4) == 10);
+	mt_fail(rb_read(rb, rdbuf, 16) == 10);
+	for (int i = 0; i != 10; i++)
+		mt_fail(rdbuf[i] == i);
+
+	memset(rd_a, 0x00, sizeof(rd_a));
+	memset(rd_b, 0x00, sizeof(rd_b));
+	memset(&rd_c, 0x00, sizeof(rd_c));
+	memset(rd_d, 0x00, sizeof(rd_d));
+	mt_fail(rb_writev(rb, wr, 4) == 10);
+	mt_fail(rb_readv(rb, rd, 4) == 10);
+	for (int i = 0; i != 6; i++)
+		mt_fail(rd_a[i] == i);
+	mt_fail(rd_b[0] == 6);
+	mt_fail(rd_b[1] == 7);
+	mt_fail(rd_c == 8);
+	mt_fail(rd_d[0] == 9);
+
+	memset(rd_a, 0x00, sizeof(rd_a));
+	memset(rd_b, 0x00, sizeof(rd_b));
+	memset(&rd_c, 0x00, sizeof(rd_c));
+	memset(rd_d, 0x00, sizeof(rd_d));
+	memset(rd_e, 0xff, sizeof(rd_e));
+	mt_fail(rb_writev(rb, wr, 4) == 10);
+	mt_fail(rb_readv(rb, rd2, 2) == 10);
+	for (int i = 0; i != 6; i++)
+		mt_fail(rd_a[i] == i);
+	for (unsigned i = 0; i != 4; i++)
+		mt_fail(rd_e[i] == i + 6);
+	for (int i = 4; i != 8; i++)
+		mt_fail(rd_e[i] == UINT32_MAX);
+
+	rb_destroy(rb);
+}
+
+void vec_dynamic(void)
+{
+	struct rb *rb = rb_new(8, 4, rb_dynamic | rb_growable);
+	struct rb_iovec wr[] = {
+		{ .base = "vec", .len = 3 },
+		{ .base = "vector", .len = 6 },
+		{ .base = "v", .len = 1 },
+		{ .base = "vectoring", .len = 9 },
+	};
+	char rdbuf[32];
+	char rd_a[3];
+	char rd_b[6];
+	char rd_c;
+	char rd_d[9];
+	char rd_e[16];
+	struct rb_iovec rd[] = {
+		{ .base = rd_a, .len = 3 },
+		{ .base = rd_b, .len = 6 },
+		{ .base =&rd_c, .len = 1 },
+		{ .base = rd_d, .len = 9 },
+	};
+	struct rb_iovec rd2[] = {
+		{ .base = rd_d, .len = 7 },
+		{ .base = rd_e, .len = 16 },
+	};
+
+	memset(rd_a, 0x00, sizeof(rd_a));
+	memset(rd_b, 0x00, sizeof(rd_b));
+	memset(&rd_c, 0x00, sizeof(rd_c));
+	memset(rd_d, 0x00, sizeof(rd_d));
+	mt_fail(rb_writev(rb, wr, 4) == 19);
+	mt_fail(rb_readv(rb, rd, 4) == 19);
+	mt_fail(strncmp(rd_a, "vec", 3) == 0);
+	mt_fail(strncmp(rd_b, "vector", 6) == 0);
+	mt_fail(strncmp(&rd_c, "v", 1) == 0);
+	mt_fail(strncmp(rd_d, "vectoring", 9) == 0);
+
+	memset(rd_a, 0x00, sizeof(rd_a));
+	memset(rd_b, 0x00, sizeof(rd_b));
+	memset(&rd_c, 0x00, sizeof(rd_c));
+	memset(rd_d, 0x00, sizeof(rd_d));
+	memset(rd_e, 0x00, sizeof(rd_e));
+	mt_fail(rb_writev(rb, wr, 4) == 19);
+	mt_fail(rb_readv(rb, rd2, 2) == 19);
+	mt_fail(strncmp(rd_d, "vecvect", 7) == 0);
+	mt_fail(strncmp(rd_e, "orvvectoring", 12) == 0);
+
+	memset(rd_a, 0x00, sizeof(rd_a));
+	memset(rd_b, 0x00, sizeof(rd_b));
+	memset(&rd_c, 0x00, sizeof(rd_c));
+	memset(rd_d, 0x00, sizeof(rd_d));
+	mt_fail(rb_writev(rb, wr, 4) == 19);
+	mt_fail(rb_read(rb, rdbuf, 32) == 19);
+	mt_fail(strncmp(rdbuf, "vecvectorvvectoring", 19) == 0);
+
+	rb_destroy(rb);
+}
+
+void vec_errors(void)
+{
+	struct rb *rb = rb_new(8, 4, rb_dynamic);
+	struct rb_iovec wr[] = {
+		{ .base = "vec", .len = 3 },
+		{ .base = "vector", .len = 6 },
+	};
+	char rd_a[2];
+	char rd_b[6];
+	struct rb_iovec rd[] = {
+		{ .base = rd_a, .len = 2 },
+		{ .base = rd_b, .len = 6 },
+	};
+
+	mt_ferr(rb_writev(rb, wr, 2), EAGAIN);
+	mt_fail(rb_count(rb) == 0);
+	mt_ferr(rb_readv(rb, rd, 2), EAGAIN);
+	mt_fail(rb_count(rb) == 0);
+	mt_fail(rb_writev(rb, wr, 1) == 3);
+	/* count is 7, because info about frame length takes 4 bytes */
+	mt_fail(rb_count(rb) == 7);
+	mt_ferr(rb_readv(rb, rd, 1), ENOBUFS);
+	mt_fail(rb_count(rb) == 7);
+	mt_fok(rb_clear(rb, 0));
+	wr[0].len = 4;
+	mt_ferr(rb_writev(rb, wr, 1), EAGAIN);
+
+	rb_destroy(rb);
+}
+#endif
+
 int main(void)
 {
 	srand(time(NULL));
@@ -1338,6 +1497,12 @@ int main(void)
 	mt_run(dynamic_limit_grow);
 	mt_run_param_named(commit_continue, 0, "commit_claim_continue_separate");
 	mt_run_param_named(commit_continue, 1, "commit_claim_continue_single");
+
+#if ENABLE_IOV
+	mt_run(vec_dynamic);
+	mt_run(read_write_vec);
+	mt_run(vec_errors);
+#endif
 
 #if ENABLE_THREADS
 	mt_run(multithread_eagain);
