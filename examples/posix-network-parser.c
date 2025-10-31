@@ -132,7 +132,7 @@ int main(void)
 		/* Claim buffer for writing. Reader thread will still be able to read
 		 * data from a queue without being locked out. Function will give us
 		 * location where we can start writing data and how big buffer is */
-		if (rb_write_claim(rb, &buffer, &count, &objsize, 0))
+		if (rb_write_claim(rb, &buffer, &count, &objsize))
 			pdie("rb_write_claim()");
 
 		/* Read data from server socket, and place it directly in ring
