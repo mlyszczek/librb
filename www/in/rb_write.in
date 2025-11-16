@@ -62,6 +62,9 @@ behavior for one single call. Possible flags are:
     * - rb_dontwait
       - Write data normally but do not block if buffer is full. Instead return
         error.
+    * - rb_growable
+      - attempts to grow memory in case continuous memory of requested size
+        cannot be returned.
 
 |rb_writev| instead of accepting single buffer, takes vector of buffers
 instead. This is gather "output". When *rb* is not dynamic, this is equivalent
@@ -91,8 +94,6 @@ If *rb* is multi-thread aware, function will return with locked write mutex,
 so no one else will be able to write from buffer until you call
 |rb_write_commit| and release mutex.
 
-*flags* argument accepts only *rb_dontwait* flag (only in multi-thread mode).
-
 |rb_write_commit| must be called after |rb_write_claim| with *count* being
 number of elements (not bytes) you wrote into the *buffer*. If *rb* is
 multi-thread aware, this will also wake up thread blocked in read operation.
@@ -108,6 +109,13 @@ Function takes same parameters as |rb_write_claim| but *count* is both
 input and output. As input arguments is defines how many bytes you commit
 to the buffer, same calling |rb_write_commit|. As output it defines size of
 returned *buffer* as with |rb_write_claim|.
+
+When you pass |rb_growable| flag, function will try to grow the ring buffer.
+*count* now is a input/output parameter. As input, it defines maximum expected
+number of bytes that will be put onto buffer. If ring buffer cannot return
+continuous memory of that size, it will try to grow the buffer. If buffer cannot
+be grown to satisfy requested memory, error is returned. As output argument
+*count* behaves normally, it may be larger than size requested.
 
 NOTES
 -----
@@ -228,5 +236,22 @@ Perform gather write on dynamic ring buffer
     rb_read(rb, rdbuf, sizeof(rdbuf));
     printf("%s", rdbuf);
     /* will print "test data to write" */
+
+Request more memory than it's available on ring buffer when claiming buffer
+for writing.
+
+.. code-block:: c
+
+   struct rb *rb = rb_new(8, 1, rb_growable | rb_dynamic);
+   char buf[128];
+   char *wrbuf;
+   size_t count;
+   size_t objsize;
+
+   /* assuming function returns 69 bytes */
+   count = read_some_data(buf, sizeof(buf));
+   rb_send_claim(rb, &wrbuf, &count, &objsize, rb_growable);
+   /* rb is of size 8 and we requested to put 69 bytes, rb will grow buffer
+    * to 128 bytes, and since buffer is empty, wr is 127 bytes long */
 
 .. include:: /in/footer.in
