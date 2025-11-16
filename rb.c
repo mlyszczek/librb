@@ -332,6 +332,34 @@ static int rb_grow(struct rb *rb)
 	return 0;
 }
 
+#if ENABLE_THREADS
+/** =========================================================================
+ * Grow ring buffer in multi thread environment. We may modify buffer
+ * location, so function will wake all read threads first and make them
+ * return with EAGAIN error until we grow the memory.
+ *
+ * @note call this function only when you are owner of write_lock
+ *
+ * @param rb ring buffer object
+ *
+ * @return 0 on success, otherwise -1 is returned
+ *
+ * @exception ENOMEM #realloc() failed to give us requested memory
+ * ========================================================================== */
+static int rb_grow_mt(struct rb *rb)
+{
+	int ret;
+
+	rb->force_exit = EAGAIN;
+	while (pthread_mutex_trylock(&rb->read_lock))
+		rb_sem_post(&rb->read_sem);
+	ret = rb_grow(rb);
+	rb->force_exit = 0;
+	unlock(rb->read_lock);
+	return ret;
+}
+#endif
+
 /** =========================================================================
  * Initializes #rb object. Buffer and #rb object must already be allocated.
  *
@@ -1211,16 +1239,7 @@ static int rb_wait_for_space(struct rb *rb, size_t count, enum rb_flags flags)
 	while (rb_can_write(rb, count) == 0 && rb->force_exit == 0) {
 		/* no free space on the buffer, grow buffer if we are allowed */
 		if (RB_IS_GROWABLE(rb)) {
-			int ret;
-
-			rb->force_exit = EAGAIN;
-			while (pthread_mutex_trylock(&rb->read_lock))
-				rb_sem_post(&rb->read_sem);
-			ret = rb_grow(rb);
-			rb->force_exit = 0;
-			unlock(rb->read_lock);
-
-			if (ret)
+			if (rb_grow_mt(rb))
 				return_errno(-1, ENOMEM);
 			else
 				continue;
@@ -1526,8 +1545,16 @@ long rb_sendv(struct rb *rb, const struct rb_iovec *vec, int iovcnt,
 	while ((total_len + rb_dynamic_len_size(rb)) > (size_t)rb_space(rb)) {
 		if (!RB_IS_GROWABLE(rb))
 			goto_errno(end, EAGAIN);
-		if (rb_grow(rb))
-			goto end;
+#if ENABLE_THREADS
+		if (rb->flags & rb_multithread) {
+			if (rb_grow_mt(rb))
+				goto end;
+		} else
+#endif
+		{
+			if (rb_grow(rb))
+				goto end;
+		}
 	}
 
 	if (rb_dynamic_write_count(rb, total_len))
@@ -1637,6 +1664,14 @@ int rb_write_claim(struct rb *rb, void **buffer, size_t *count,
  * - rb_continue: get buffer but do not try to lock the mutex, you must first
  *   call rb_send_commit() with #rb_continue flag or else you will hang in
  *   double lock case. This flag will do nothing for single thread operation.
+ * - rb_growable: when #rb is created with #rb_growable *AND* #rb_growable
+ *   appears again in #flags here, function will try to grow buffer for you
+ *   if it cannot return requested continuous memory. When this flag is set
+ *   #count is an in/out parameter. As input, it specifies expected number of
+ *   bytes that will be put onto buffer (you can later put less bytes anyway,
+ *   no one is checking that!). As output parameter it behaves normally. If
+ *   memory cannot be allocated (not growable buffer or hard limit is reached)
+ *   function will return ENOMEM error.
  *
  * If multi-thread #rb is used, function will block like #rb_send until
  * space is available on #rb. After function finishes, you will be the owner
@@ -1675,11 +1710,39 @@ int rb_send_claim(struct rb *rb, void **buffer, size_t *count,
 #endif
 
 	trace("write claimed");
-	*count = rb_space_end(rb);
+	if (flags & rb_growable && RB_IS_GROWABLE(rb)) {
+		size_t expected_count = *count;
+		while (rb_space_end(rb) < expected_count) {
+#if ENABLE_THREADS
+			if (rb->flags & rb_multithread) {
+				if (rb_grow_mt(rb))
+					goto error;
+			} else
+#endif
+			{
+				if (rb_grow(rb))
+					goto error;
+			}
+		}
+		*count = rb_space_end(rb);
+	} else {
+		if (flags & rb_growable)
+			goto error;
+		*count = rb_space_end(rb);
+	}
+
 	*object_size = RB_IS_DYNAMIC(rb) ? 1 : rb->object_size;
 	*buffer = rb->buffer + rb->head * *object_size;
 
 	return 0;
+
+error:
+#if ENABLE_THREADS
+	if (rb->flags & rb_multithread && !(flags & rb_continue))
+		unlock(rb->write_lock);
+#endif
+	errno = ENOMEM;
+	return -1;
 }
 
 /** =========================================================================

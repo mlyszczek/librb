@@ -1413,6 +1413,45 @@ void vec_errors(void)
 }
 #endif
 
+static void send_claim_grow(void)
+{
+	struct rb *rb = rb_new(8, 2, rb_growable | rb_dynamic);
+
+	char *buf;
+	size_t size;
+	size_t objsize;
+
+	size = 60;
+	rb_send_claim(rb, (void **)&buf, &size, &objsize, rb_growable);
+	mt_fail(size == 63);
+	mt_fail(rb->count == 64);
+
+	size = 328;
+	rb_send_claim(rb, (void **)&buf, &size, &objsize, rb_growable);
+	mt_fail(size == 511);
+	mt_fail(rb->count == 512);
+	rb_send_commit(rb, 0, 0);
+
+	size = 60;
+	rb_send_claim(rb, (void **)&buf, &size, &objsize, rb_growable);
+	mt_fail(rb->count == 512);
+	mt_fail(size == 511);
+	rb_send_commit(rb, 100, 0);
+
+	size = 800;
+	rb_send_claim(rb, (void **)&buf, &size, &objsize, rb_growable);
+	mt_fail(rb->count == 1024);
+	mt_fail(size == (1023 - 100));
+	rb_send_commit(rb, 0, 0);
+
+	rb_set_hard_max_count(rb, 1024);
+	size = 1500;
+	mt_ferr(rb_send_claim(rb, (void **)&buf, &size, &objsize, rb_growable), ENOMEM);
+
+	rb_destroy(rb);
+}
+
+
 int main(void)
 {
 	srand(time(NULL));
@@ -1424,6 +1463,8 @@ int main(void)
 
 	char name[128];
 
+	mt_run(send_claim_grow);
+	mt_return();
 #if ENABLE_THREADS
 	int t_nprod_max = 16;
 	int t_ncons_max = 16;
@@ -1495,6 +1536,7 @@ int main(void)
 	mt_run(dynamic_read_write_invalid_count);
 	mt_run(recv_send_zero);
 	mt_run(dynamic_limit_grow);
+	mt_run(send_claim_grow);
 	mt_run_param_named(commit_continue, 0, "commit_claim_continue_separate");
 	mt_run_param_named(commit_continue, 1, "commit_claim_continue_single");
 
